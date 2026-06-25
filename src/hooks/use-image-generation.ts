@@ -168,13 +168,17 @@ export function useImageGeneration() {
       }
 
       const imageUrls = uploadedImages.map((img) => img.storageUrl);
-      const size = calculateSize(resolution, aspectRatio);
 
-      // Start SSE generation
+      // Start SSE generation - pass size (aspect ratio) and resolution separately
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageUrls, prompt: prompt.trim(), size }),
+        body: JSON.stringify({
+          imageUrls,
+          prompt: prompt.trim(),
+          size: aspectRatio,
+          resolution: resolution.toLowerCase(),
+        }),
       });
 
       if (!response.ok) {

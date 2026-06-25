@@ -6,7 +6,11 @@
 ## 技术栈
 - Next.js 16 (App Router) + React 19 + TypeScript 5
 - Tailwind CSS 4 + shadcn/ui
-- coze-coding-dev-sdk (ImageGenerationClient + S3Storage)
+- coze-coding-dev-sdk (S3Storage 对象存储)
+- APIMart GPT-Image-2 API (图生图，异步任务模式)
+
+## 环境变量
+- `APIMART_API_KEY` - APIMart API 密钥，用于调用 GPT-Image-2 图生图接口
 
 ## 目录结构
 ```
@@ -44,5 +48,9 @@ src/
 ## 注意事项
 - SDK 仅在后端使用（API Routes），不暴露在前端代码中
 - 图片上传使用 S3Storage，必须用 generatePresignedUrl 获取访问 URL
-- 图生图 API 的 image 参数需要远程 URL，不支持本地路径
+- 图生图使用 APIMart GPT-Image-2 API（异步模式）：
+  - 提交任务：POST /v1/images/generations → 返回 task_id
+  - 轮询结果：GET /v1/tasks/{task_id} → 返回图片 URL
+  - 参数：size（宽高比）、resolution（1k/2k/4k）、image_urls（参考图 URL 数组）
 - 下载跨域图片必须用 fetch + blob，不能用 <a download>
+- API Key 通过环境变量 APIMART_API_KEY 配置，不硬编码

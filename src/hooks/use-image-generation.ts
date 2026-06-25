@@ -24,10 +24,42 @@ export interface GenerationProgress {
   total: number;
 }
 
+export const RESOLUTIONS: Record<string, { base: number; label: string }> = {
+  '1K': { base: 2560, label: '1K' },
+  '2K': { base: 3200, label: '2K' },
+  '4K': { base: 4096, label: '4K' },
+};
+
+export const ASPECT_RATIOS: Record<string, { w: number; h: number; label: string }> = {
+  '1:1': { w: 1, h: 1, label: '1:1 \u6b63\u65b9\u5f62' },
+  '16:9': { w: 16, h: 9, label: '16:9 \u6a2a\u5c4f' },
+  '9:16': { w: 9, h: 16, label: '9:16 \u7ad6\u5c4f' },
+  '4:3': { w: 4, h: 3, label: '4:3 \u6a2a\u5c4f' },
+  '3:4': { w: 3, h: 4, label: '3:4 \u7ad6\u5c4f' },
+};
+
+export function calculateSize(resolution: string, aspectRatio: string): string {
+  const res = RESOLUTIONS[resolution];
+  const ratio = ASPECT_RATIOS[aspectRatio];
+  if (!res || !ratio) return '2K';
+
+  let w = res.base;
+  let h = Math.round(res.base * ratio.h / ratio.w);
+
+  // SDK range: 2560x1440 ~ 4096x4096
+  if (w < 2560) w = 2560;
+  if (w > 4096) w = 4096;
+  if (h < 1440) h = 1440;
+  if (h > 4096) h = 4096;
+
+  return `${w}x${h}`;
+}
+
 export function useImageGeneration() {
   const [images, setImages] = useState<UploadedImage[]>([]);
   const [prompt, setPrompt] = useState('');
-  const [size, setSize] = useState('2K');
+  const [resolution, setResolution] = useState('2K');
+  const [aspectRatio, setAspectRatio] = useState('16:9');
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<GenerationProgress | null>(null);
   const [results, setResults] = useState<GenerationResult[]>([]);
@@ -75,7 +107,7 @@ export function useImageGeneration() {
 
     if (!response.ok) {
       const data = await response.json();
-      throw new Error(data.error || 'Upload failed');
+      throw new Error(data.error || '\u4e0a\u4f20\u5931\u8d25');
     }
 
     const data = await response.json();
@@ -109,17 +141,18 @@ export function useImageGeneration() {
           uploadedImages.push(result.value);
           return result.value;
         } else {
-          return { ...img, uploading: false, uploadError: result.reason?.message || 'Upload failed' };
+          return { ...img, uploading: false, uploadError: result.reason?.message || '\u4e0a\u4f20\u5931\u8d25' };
         }
       });
 
       setImages(updatedImages);
 
       if (uploadedImages.length === 0) {
-        throw new Error('All images failed to upload');
+        throw new Error('\u6240\u6709\u56fe\u7247\u4e0a\u4f20\u5931\u8d25');
       }
 
       const imageUrls = uploadedImages.map((img) => img.storageUrl);
+      const size = calculateSize(resolution, aspectRatio);
 
       // Start SSE generation
       const response = await fetch('/api/generate', {
@@ -129,7 +162,7 @@ export function useImageGeneration() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to start generation');
+        throw new Error('\u542f\u52a8\u751f\u6210\u5931\u8d25');
       }
 
       const reader = response.body!.getReader();
@@ -164,14 +197,16 @@ export function useImageGeneration() {
     } finally {
       setIsGenerating(false);
     }
-  }, [images, prompt, size]);
+  }, [images, prompt, resolution, aspectRatio]);
 
   return {
     images,
     prompt,
     setPrompt,
-    size,
-    setSize,
+    resolution,
+    setResolution,
+    aspectRatio,
+    setAspectRatio,
     isGenerating,
     progress,
     results,

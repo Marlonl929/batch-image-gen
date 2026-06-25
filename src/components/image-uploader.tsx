@@ -59,7 +59,7 @@ export function ImageUploader({ images, onAdd, onRemove, onClear, disabled }: Im
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
           <ImageIcon className="h-4 w-4 text-amber-500" />
-          Source Images
+          {'\u539f\u59cb\u56fe\u7247'}
           <span className="text-zinc-500">({images.length})</span>
         </h2>
         {images.length > 0 && (
@@ -70,7 +70,7 @@ export function ImageUploader({ images, onAdd, onRemove, onClear, disabled }: Im
             disabled={disabled}
             className="text-zinc-400 hover:text-zinc-200"
           >
-            Clear All
+            {'\u6e05\u7a7a\u5168\u90e8'}
           </Button>
         )}
       </div>
@@ -102,10 +102,10 @@ export function ImageUploader({ images, onAdd, onRemove, onClear, disabled }: Im
         />
         <Upload className={`mx-auto h-8 w-8 mb-2 ${isDragOver ? 'text-amber-500' : 'text-zinc-500'}`} />
         <p className="text-sm text-zinc-400">
-          Drag & drop images here, or <span className="text-amber-500">click to browse</span>
+          {'\u62d6\u62fd\u56fe\u7247\u5230\u8fd9\u91cc\uff0c\u6216'} <span className="text-amber-500">{'\u70b9\u51fb\u6d4f\u89c8'}</span>
         </p>
         <p className="text-xs text-zinc-600 mt-1">
-          Supports JPEG, PNG, WebP, GIF (max 10MB each)
+          {'\u652f\u6301 JPEG\u3001PNG\u3001WebP\u3001GIF \u683c\u5f0f\uff08\u5355\u5f20\u6700\u5927 10MB\uff09'}
         </p>
       </div>
 
@@ -157,7 +157,7 @@ export function ImageUploader({ images, onAdd, onRemove, onClear, disabled }: Im
 
       {uploadCount > 0 && (
         <p className="text-xs text-red-400">
-          {uploadCount} image(s) failed to upload
+          {uploadCount} {'\u5f20\u56fe\u7247\u4e0a\u4f20\u5931\u8d25'}
         </p>
       )}
     </div>

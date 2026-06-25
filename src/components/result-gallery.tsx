@@ -31,7 +31,7 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
     for (let i = 0; i < successResults.length; i++) {
       const result = successResults[i];
       if (result.imageUrl) {
-        await downloadImage(result.imageUrl, `generated_${i + 1}.png`);
+        await downloadImage(result.imageUrl, `\u751f\u6210\u7ed3\u679c_${i + 1}.png`);
         await new Promise((r) => setTimeout(r, 300));
       }
     }
@@ -41,7 +41,7 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
     return (
       <div className="flex flex-col items-center justify-center py-16 text-zinc-600">
         <ImageIcon className="h-12 w-12 mb-3 opacity-50" />
-        <p className="text-sm">Generated images will appear here</p>
+        <p className="text-sm">{'\u751f\u6210\u7684\u56fe\u7247\u5c06\u5728\u8fd9\u91cc\u663e\u793a'}</p>
       </div>
     );
   }
@@ -51,7 +51,7 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
           <ImageIcon className="h-4 w-4 text-amber-500" />
-          Results
+          {'\u751f\u6210\u7ed3\u679c'}
           {hasResults && (
             <span className="text-zinc-500">
               ({successResults.length}/{results.length})
@@ -66,7 +66,7 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
             className="text-amber-500 hover:text-amber-400"
           >
             <Download className="h-3.5 w-3.5 mr-1.5" />
-            Download All
+            {'\u6279\u91cf\u4e0b\u8f7d'}
           </Button>
         )}
       </div>
@@ -77,7 +77,7 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
           <div className="flex items-center justify-between text-xs text-zinc-400">
             <span className="flex items-center gap-1.5">
               <Loader2 className="h-3 w-3 animate-spin text-amber-500" />
-              Processing...
+              {'\u5904\u7406\u4e2d...'}
             </span>
             <span>{progress.current} / {progress.total}</span>
           </div>
@@ -102,11 +102,11 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
                 <div className="relative">
                   <img
                     src={sourceImage.previewUrl}
-                    alt="Source"
+                    alt={'\u539f\u56fe'}
                     className="w-full aspect-video object-cover opacity-60"
                   />
                   <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/70 text-[10px] text-zinc-400">
-                    Source
+                    {'\u539f\u56fe'}
                   </div>
                 </div>
               )}
@@ -116,7 +116,7 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
                 <div className="relative group">
                   <img
                     src={result.imageUrl}
-                    alt="Generated"
+                    alt={'\u751f\u6210\u7ed3\u679c'}
                     className="w-full aspect-video object-cover"
                   />
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
@@ -124,17 +124,17 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
                       size="sm"
                       variant="secondary"
                       onClick={() =>
-                        downloadImage(result.imageUrl!, `generated_${result.index + 1}.png`)
+                        downloadImage(result.imageUrl!, `\u751f\u6210\u7ed3\u679c_${result.index + 1}.png`)
                       }
                       className="opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       <Download className="h-3.5 w-3.5 mr-1" />
-                      Download
+                      {'\u4e0b\u8f7d'}
                     </Button>
                   </div>
                   <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-emerald-900/80 text-[10px] text-emerald-300 flex items-center gap-1">
                     <CheckCircle2 className="h-2.5 w-2.5" />
-                    Done
+                    {'\u5df2\u5b8c\u6210'}
                   </div>
                 </div>
               ) : (
@@ -142,7 +142,7 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
                   <div className="text-center">
                     <XCircle className="h-6 w-6 text-red-400 mx-auto mb-1" />
                     <p className="text-xs text-red-400 max-w-[200px] truncate">
-                      {result.error || 'Failed'}
+                      {result.error || '\u751f\u6210\u5931\u8d25'}
                     </p>
                   </div>
                 </div>

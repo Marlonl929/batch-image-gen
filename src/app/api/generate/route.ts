@@ -11,7 +11,6 @@ interface GenerateResult {
 }
 
 const APIMART_API_URL = 'https://api.apimart.ai';
-const APIMART_API_KEY = process.env.APIMART_API_KEY;
 
 // Submit image generation task
 async function submitTask(params: {
@@ -19,6 +18,7 @@ async function submitTask(params: {
   imageUrls: string[];
   size: string;
   resolution: string;
+  apiKey: string;
 }): Promise<{ task_id: string; status: string }> {
   console.log('[SubmitTask] Calling APIMart API...');
   console.log('[SubmitTask] URL:', `${APIMART_API_URL}/v1/images/generations`);
@@ -27,7 +27,7 @@ async function submitTask(params: {
   const response = await fetch(`${APIMART_API_URL}/v1/images/generations`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${APIMART_API_KEY}`,
+      'Authorization': `Bearer ${params.apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -62,6 +62,7 @@ async function submitTask(params: {
 // Poll task status until completion
 async function pollTaskResult(
   taskId: string,
+  apiKey: string,
   onProgress?: (progress: number) => void
 ): Promise<{ success: boolean; imageUrl?: string; error?: string }> {
   const maxAttempts = 60; // Max 5 minutes (60 * 5s)
@@ -70,7 +71,7 @@ async function pollTaskResult(
   while (attempts < maxAttempts) {
     const response = await fetch(`${APIMART_API_URL}/v1/tasks/${taskId}`, {
       headers: {
-        'Authorization': `Bearer ${APIMART_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
       },
     });
 
@@ -108,18 +109,17 @@ async function pollTaskResult(
 
 export async function POST(request: NextRequest) {
   console.log('[Generate API] Request received');
-  console.log('[Generate API] APIMART_API_KEY configured:', !!APIMART_API_KEY);
 
   try {
     const body = await request.json();
-    const { imageUrls, prompt, size, resolution } = body;
-    console.log('[Generate API] Params:', { imageCount: imageUrls?.length, prompt: prompt?.slice(0, 50), size, resolution });
+    const { imageUrls, prompt, size, resolution, apiKey } = body;
+    console.log('[Generate API] Params:', { imageCount: imageUrls?.length, prompt: prompt?.slice(0, 50), size, resolution, hasApiKey: !!apiKey });
 
-    if (!APIMART_API_KEY) {
-      console.error('[Generate API] APIMART_API_KEY is not configured');
+    if (!apiKey || typeof apiKey !== 'string') {
+      console.error('[Generate API] API Key is missing');
       return new Response(
-        JSON.stringify({ error: '未配置 APIMART_API_KEY 环境变量' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
+        JSON.stringify({ error: '请先在设置中配置 APIMart API Key' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
@@ -165,10 +165,11 @@ export async function POST(request: NextRequest) {
               imageUrls: [imageUrl],
               size: size || '1:1',
               resolution: resolution || '2k',
+              apiKey,
             });
 
             // Step 2: Poll for result
-            const result = await pollTaskResult(task_id, (progress) => {
+            const result = await pollTaskResult(task_id, apiKey, (progress) => {
               // Optional: send progress updates
               send({ type: 'progress', current: completed + progress / 100, total });
             });

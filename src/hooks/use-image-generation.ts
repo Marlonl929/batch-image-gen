@@ -170,6 +170,11 @@ export function useImageGeneration() {
       const imageUrls = uploadedImages.map((img) => img.storageUrl);
 
       // Start SSE generation - pass size (aspect ratio) and resolution separately
+      const apiKey = localStorage.getItem('apimart_api_key') || '';
+      if (!apiKey) {
+        throw new Error('请先在右上角设置中配置 APIMart API Key');
+      }
+
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -178,6 +183,7 @@ export function useImageGeneration() {
           prompt: prompt.trim(),
           size: aspectRatio,
           resolution: resolution.toLowerCase(),
+          apiKey,
         }),
       });
 

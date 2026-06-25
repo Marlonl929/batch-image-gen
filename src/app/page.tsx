@@ -3,6 +3,7 @@
 import { ImageUploader } from '@/components/image-uploader';
 import { PromptInput } from '@/components/prompt-input';
 import { ResultGallery } from '@/components/result-gallery';
+import { ApiKeySettings } from '@/components/api-key-settings';
 import { useImageGeneration } from '@/hooks/use-image-generation';
 import { Layers } from 'lucide-react';
 
@@ -39,6 +40,9 @@ export default function Home() {
             <p className="text-xs text-zinc-500">
               {'\u4e0a\u4f20\u56fe\u7247\uff0c\u63cf\u8ff0\u4f60\u7684\u521b\u610f\uff0c\u6279\u91cf\u751f\u6210'}
             </p>
+          </div>
+          <div className="ml-auto">
+            <ApiKeySettings />
           </div>
         </div>
       </header>

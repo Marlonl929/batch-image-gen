@@ -1,5 +1,4 @@
 import { NextRequest } from 'next/server';
-import { ImageGenerationClient, Config, HeaderUtils } from 'coze-coding-dev-sdk';
 
 interface GenerateResult {
   type: 'progress' | 'result' | 'done' | 'start' | 'error';
@@ -11,21 +10,105 @@ interface GenerateResult {
   error?: string;
 }
 
-// Map aspect ratio + resolution to SDK size format
-function getSDKSize(aspectRatio: string, resolution: string): string {
-  // SDK supports "2K", "4K", or "WIDTHxHEIGHT"
-  // For simplicity, use resolution as the base size
-  const resMap: Record<string, string> = {
-    '1k': '2K', // SDK minimum is 2K
-    '2k': '2K',
-    '4k': '4K',
+const APIMART_API_URL = 'https://api.apimart.ai';
+const APIMART_API_KEY = process.env.APIMART_API_KEY;
+
+// Submit image generation task
+async function submitTask(params: {
+  prompt: string;
+  imageUrls: string[];
+  size: string;
+  resolution: string;
+}): Promise<{ task_id: string; status: string }> {
+  const response = await fetch(`${APIMART_API_URL}/v1/images/generations`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${APIMART_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-image-2',
+      prompt: params.prompt,
+      n: 1,
+      size: params.size,
+      resolution: params.resolution,
+      image_urls: params.imageUrls,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (data.error) {
+    throw new Error(data.error.message || '提交任务失败');
+  }
+
+  if (!data.data?.[0]?.task_id) {
+    throw new Error('未获取到任务ID');
+  }
+
+  return {
+    task_id: data.data[0].task_id,
+    status: data.data[0].status,
   };
-  return resMap[resolution] || '2K';
+}
+
+// Poll task status until completion
+async function pollTaskResult(
+  taskId: string,
+  onProgress?: (progress: number) => void
+): Promise<{ success: boolean; imageUrl?: string; error?: string }> {
+  const maxAttempts = 60; // Max 5 minutes (60 * 5s)
+  let attempts = 0;
+
+  while (attempts < maxAttempts) {
+    const response = await fetch(`${APIMART_API_URL}/v1/tasks/${taskId}`, {
+      headers: {
+        'Authorization': `Bearer ${APIMART_API_KEY}`,
+      },
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(data.error.message || '查询任务失败');
+    }
+
+    const taskData = data.data;
+    const status = taskData?.status;
+    const progress = taskData?.progress || 0;
+
+    onProgress?.(progress);
+
+    if (status === 'completed') {
+      const imageUrl = taskData?.result?.images?.[0]?.url?.[0];
+      if (imageUrl) {
+        return { success: true, imageUrl };
+      }
+      return { success: false, error: '未获取到生成结果' };
+    }
+
+    if (status === 'failed') {
+      return { success: false, error: taskData?.error?.message || '生成失败' };
+    }
+
+    // Wait 5 seconds before next poll
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    attempts++;
+  }
+
+  return { success: false, error: '任务超时' };
 }
 
 export async function POST(request: NextRequest) {
   try {
     const { imageUrls, prompt, size, resolution } = await request.json();
+
+    if (!APIMART_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: '未配置 APIMART_API_KEY 环境变量' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length === 0) {
       return new Response(
@@ -41,13 +124,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const customHeaders = HeaderUtils.extractForwardHeaders(request.headers);
-    const config = new Config();
-    const client = new ImageGenerationClient(config, customHeaders);
-
     const encoder = new TextEncoder();
     const total = imageUrls.length;
-    const sdkSize = getSDKSize(size || '1:1', resolution || '2k');
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -59,55 +137,53 @@ export async function POST(request: NextRequest) {
 
         send({ type: 'start', total });
 
-        // Process images with concurrency limit
-        const concurrency = 2;
         let completed = 0;
 
-        const processImage = async (imageUrl: string, index: number) => {
+        // Process images sequentially to avoid rate limiting
+        for (let i = 0; i < total; i++) {
+          const imageUrl = imageUrls[i];
+
           try {
             send({ type: 'progress', current: completed + 1, total });
 
-            const response = await client.generate({
+            // Step 1: Submit task
+            const { task_id } = await submitTask({
               prompt: prompt.trim(),
-              image: imageUrl,
-              size: sdkSize,
+              imageUrls: [imageUrl],
+              size: size || '1:1',
+              resolution: resolution || '2k',
             });
 
-            const helper = client.getResponseHelper(response);
+            // Step 2: Poll for result
+            const result = await pollTaskResult(task_id, (progress) => {
+              // Optional: send progress updates
+              send({ type: 'progress', current: completed + progress / 100, total });
+            });
 
             completed++;
             send({ type: 'progress', current: completed, total });
 
-            if (helper.success && helper.imageUrls.length > 0) {
+            if (result.success && result.imageUrl) {
               send({
                 type: 'result',
-                index,
+                index: i,
                 success: true,
-                imageUrl: helper.imageUrls[0],
+                imageUrl: result.imageUrl,
               });
             } else {
               send({
                 type: 'result',
-                index,
+                index: i,
                 success: false,
-                error: helper.errorMessages[0] || '生成失败',
+                error: result.error || '生成失败',
               });
             }
           } catch (err) {
             completed++;
             const errorMessage = err instanceof Error ? err.message : '生成失败';
             send({ type: 'progress', current: completed, total });
-            send({ type: 'result', index, success: false, error: errorMessage });
+            send({ type: 'result', index: i, success: false, error: errorMessage });
           }
-        };
-
-        // Process in batches
-        for (let i = 0; i < total; i += concurrency) {
-          const batch = imageUrls.slice(i, i + concurrency);
-          const promises = batch.map((url: string, batchIndex: number) =>
-            processImage(url, i + batchIndex)
-          );
-          await Promise.all(promises);
         }
 
         send({ type: 'done', total });

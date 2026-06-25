@@ -1,13 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { S3Storage } from 'coze-coding-dev-sdk';
-
-const storage = new S3Storage({
-  endpointUrl: process.env.COZE_BUCKET_ENDPOINT_URL,
-  accessKey: '',
-  secretKey: '',
-  bucketName: process.env.COZE_BUCKET_NAME,
-  region: 'cn-beijing',
-});
+import { put } from '@vercel/blob';
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,7 +23,7 @@ export async function POST(request: NextRequest) {
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     if (!allowedTypes.includes(file.type)) {
       return NextResponse.json(
-        { error: 'Unsupported file type. Only JPEG, PNG, WebP, GIF are allowed.' },
+        { error: '不支持的文件格式，仅支持 JPEG、PNG、WebP、GIF' },
         { status: 400 }
       );
     }
@@ -40,33 +32,26 @@ export async function POST(request: NextRequest) {
     const maxSize = 10 * 1024 * 1024;
     if (file.size > maxSize) {
       return NextResponse.json(
-        { error: 'File too large. Max size is 10MB.' },
+        { error: '文件过大，最大支持 10MB' },
         { status: 400 }
       );
     }
 
-    // Convert file to buffer
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    // Upload to Vercel Blob
+    const blob = await put(
+      `uploads/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
+      file,
+      {
+        access: 'public',
+        contentType: file.type,
+      }
+    );
 
-    // Upload to object storage
-    const key = await storage.uploadFile({
-      fileContent: buffer,
-      fileName: `uploads/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`,
-      contentType: file.type,
-    });
-
-    // Generate presigned URL for the uploaded file
-    const url = await storage.generatePresignedUrl({
-      key,
-      expireTime: 86400, // 24 hours
-    });
-
-    return NextResponse.json({ key, url });
+    return NextResponse.json({ key: blob.pathname, url: blob.url });
   } catch (error) {
     console.error('Upload error:', error);
     return NextResponse.json(
-      { error: 'Failed to upload file' },
+      { error: '上传文件失败' },
       { status: 500 }
     );
   }

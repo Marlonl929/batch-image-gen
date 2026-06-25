@@ -92,7 +92,10 @@ export function PromptInput({
 
       {/* Size preview */}
       <div className="text-xs text-zinc-500">
-        {'\u8f93\u51fa\u5c3a\u5bf8'}: <span className="text-zinc-300">{sizePreview}</span> px
+        {'\u8f93\u51fa\u5c3a\u5bf8'}:{' '}
+        <span className="text-zinc-300">
+          {aspectRatio === 'auto' ? '\u81ea\u52a8' : `${sizePreview} px`}
+        </span>
       </div>
 
       <Button

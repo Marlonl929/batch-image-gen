@@ -31,14 +31,30 @@ export const RESOLUTIONS: Record<string, { base: number; label: string }> = {
 };
 
 export const ASPECT_RATIOS: Record<string, { w: number; h: number; label: string }> = {
-  '1:1': { w: 1, h: 1, label: '1:1 \u6b63\u65b9\u5f62' },
-  '16:9': { w: 16, h: 9, label: '16:9 \u6a2a\u5c4f' },
-  '9:16': { w: 9, h: 16, label: '9:16 \u7ad6\u5c4f' },
-  '4:3': { w: 4, h: 3, label: '4:3 \u6a2a\u5c4f' },
-  '3:4': { w: 3, h: 4, label: '3:4 \u7ad6\u5c4f' },
+  auto: { w: 16, h: 9, label: 'auto' },
+  '1:1': { w: 1, h: 1, label: '1:1' },
+  '1:3': { w: 1, h: 3, label: '1:3' },
+  '3:1': { w: 3, h: 1, label: '3:1' },
+  '16:9': { w: 16, h: 9, label: '16:9' },
+  '9:16': { w: 9, h: 16, label: '9:16' },
+  '4:3': { w: 4, h: 3, label: '4:3' },
+  '3:4': { w: 3, h: 4, label: '3:4' },
+  '3:2': { w: 3, h: 2, label: '3:2' },
+  '2:3': { w: 2, h: 3, label: '2:3' },
+  '5:4': { w: 5, h: 4, label: '5:4' },
+  '4:5': { w: 4, h: 5, label: '4:5' },
+  '2:1': { w: 2, h: 1, label: '2:1' },
+  '1:2': { w: 1, h: 2, label: '1:2' },
+  '21:9': { w: 21, h: 9, label: '21:9' },
+  '9:21': { w: 9, h: 21, label: '9:21' },
 };
 
 export function calculateSize(resolution: string, aspectRatio: string): string {
+  // "auto" uses the resolution preset directly, let API decide
+  if (aspectRatio === 'auto') {
+    return resolution === '4K' ? '4K' : '2K';
+  }
+
   const res = RESOLUTIONS[resolution];
   const ratio = ASPECT_RATIOS[aspectRatio];
   if (!res || !ratio) return '2K';

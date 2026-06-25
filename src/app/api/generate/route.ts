@@ -20,6 +20,10 @@ async function submitTask(params: {
   size: string;
   resolution: string;
 }): Promise<{ task_id: string; status: string }> {
+  console.log('[SubmitTask] Calling APIMart API...');
+  console.log('[SubmitTask] URL:', `${APIMART_API_URL}/v1/images/generations`);
+  console.log('[SubmitTask] Params:', { prompt: params.prompt.slice(0, 50), imageCount: params.imageUrls.length, size: params.size, resolution: params.resolution });
+
   const response = await fetch(`${APIMART_API_URL}/v1/images/generations`, {
     method: 'POST',
     headers: {
@@ -37,6 +41,8 @@ async function submitTask(params: {
   });
 
   const data = await response.json();
+  console.log('[SubmitTask] Response status:', response.status);
+  console.log('[SubmitTask] Response data:', JSON.stringify(data).slice(0, 500));
 
   if (data.error) {
     throw new Error(data.error.message || '提交任务失败');
@@ -46,6 +52,7 @@ async function submitTask(params: {
     throw new Error('未获取到任务ID');
   }
 
+  console.log('[SubmitTask] Task created:', data.data[0].task_id);
   return {
     task_id: data.data[0].task_id,
     status: data.data[0].status,
@@ -100,10 +107,16 @@ async function pollTaskResult(
 }
 
 export async function POST(request: NextRequest) {
+  console.log('[Generate API] Request received');
+  console.log('[Generate API] APIMART_API_KEY configured:', !!APIMART_API_KEY);
+
   try {
-    const { imageUrls, prompt, size, resolution } = await request.json();
+    const body = await request.json();
+    const { imageUrls, prompt, size, resolution } = body;
+    console.log('[Generate API] Params:', { imageCount: imageUrls?.length, prompt: prompt?.slice(0, 50), size, resolution });
 
     if (!APIMART_API_KEY) {
+      console.error('[Generate API] APIMART_API_KEY is not configured');
       return new Response(
         JSON.stringify({ error: '未配置 APIMART_API_KEY 环境变量' }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
@@ -179,6 +192,7 @@ export async function POST(request: NextRequest) {
               });
             }
           } catch (err) {
+            console.error('[Generate] Error processing image', i, ':', err);
             completed++;
             const errorMessage = err instanceof Error ? err.message : '生成失败';
             send({ type: 'progress', current: completed, total });

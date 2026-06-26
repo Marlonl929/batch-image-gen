@@ -1,9 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import type { UploadedImage, GenerationResult, GenerationProgress } from '@/hooks/use-image-generation';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Download, CheckCircle2, XCircle, Loader2, Image as ImageIcon } from 'lucide-react';
+import { Download, CheckCircle2, XCircle, Loader2, Image as ImageIcon, ZoomIn, X } from 'lucide-react';
 
 interface ResultGalleryProps {
   images: UploadedImage[];
@@ -13,6 +14,7 @@ interface ResultGalleryProps {
 }
 
 export function ResultGallery({ images, results, progress, isGenerating }: ResultGalleryProps) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const hasResults = results.length > 0;
   const successResults = results.filter((r) => r.success);
 
@@ -127,15 +129,29 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
                   <img
                     src={result.imageUrl}
                     alt={'\u751f\u6210\u7ed3\u679c'}
-                    className="w-full aspect-video object-cover"
+                    className="w-full aspect-video object-cover cursor-pointer"
+                    onClick={() => setPreviewUrl(result.imageUrl!)}
                   />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-2">
                     <Button
                       size="sm"
                       variant="secondary"
-                      onClick={() =>
-                        downloadImage(result.imageUrl!, `\u751f\u6210\u7ed3\u679c_${result.index + 1}.png`)
-                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPreviewUrl(result.imageUrl!);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <ZoomIn className="h-3.5 w-3.5 mr-1" />
+                      {'\u9884\u89c8'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        downloadImage(result.imageUrl!, `\u751f\u6210\u7ed3\u679c_${result.index + 1}.png`);
+                      }}
                       className="opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       <Download className="h-3.5 w-3.5 mr-1" />
@@ -161,6 +177,27 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
           );
         })}
       </div>
+
+      {/* Image preview lightbox */}
+      {previewUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setPreviewUrl(null)}
+        >
+          <button
+            onClick={() => setPreviewUrl(null)}
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={previewUrl}
+            alt={'\u9884\u89c8'}
+            className="max-w-full max-h-full object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -111,47 +111,43 @@ export function ImageUploader({ images, onAdd, onRemove, onClear, disabled }: Im
 
       {/* Image grid */}
       {images.length > 0 && (
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
-          {images.map((image) => (
-            <div
-              key={image.id}
-              className="group relative aspect-square rounded-lg overflow-hidden bg-zinc-900 border border-zinc-800"
-            >
-              <img
-                src={image.previewUrl}
-                alt={image.file.name}
-                className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-              />
-
-              {/* Upload error overlay */}
-              {image.uploadError && (
-                <div className="absolute inset-0 bg-red-950/80 flex items-center justify-center">
-                  <AlertCircle className="h-5 w-5 text-red-400" />
-                </div>
-              )}
-
-              {/* Uploading overlay */}
-              {image.uploading && (
-                <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                  <div className="h-5 w-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
-                </div>
-              )}
-
-              {/* Delete button */}
-              {!disabled && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRemove(image.id);
-                  }}
-                  className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/70 flex items-center justify-center
-                    opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
-                >
-                  <X className="h-3 w-3 text-white" />
-                </button>
-              )}
-            </div>
-          ))}
+        <div className="max-h-[320px] overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950/30 p-3">
+          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-2">
+            {images.map((image) => (
+              <div
+                key={image.id}
+                className="group relative aspect-square rounded-md overflow-hidden bg-zinc-900 border border-zinc-800 hover:border-amber-500/50 transition-colors"
+              >
+                <img
+                  src={image.previewUrl}
+                  alt={image.file.name}
+                  className="h-full w-full object-cover"
+                />
+                {image.uploadError && (
+                  <div className="absolute inset-0 bg-red-950/80 flex items-center justify-center">
+                    <AlertCircle className="h-4 w-4 text-red-400" />
+                  </div>
+                )}
+                {image.uploading && (
+                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                    <div className="h-4 w-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+                {!disabled && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemove(image.id);
+                    }}
+                    className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-black/70 flex items-center justify-center
+                      opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                  >
+                    <X className="h-2.5 w-2.5 text-white" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

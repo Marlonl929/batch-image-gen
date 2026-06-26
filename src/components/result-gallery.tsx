@@ -17,14 +17,24 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
   const successResults = results.filter((r) => r.success);
 
   const downloadImage = async (url: string, filename: string) => {
-    const response = await fetch(url);
-    const blob = await response.blob();
-    const blobUrl = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = blobUrl;
-    link.download = filename;
-    link.click();
-    window.URL.revokeObjectURL(blobUrl);
+    try {
+      // 优先通过后端代理下载（避免 CORS 问题）
+      const proxyUrl = `/api/download?url=${encodeURIComponent(url)}`;
+      const response = await fetch(proxyUrl);
+      if (!response.ok) throw new Error('Proxy download failed');
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch {
+      // 代理失败时，直接在新标签页打开图片
+      window.open(url, '_blank');
+    }
   };
 
   const downloadAll = async () => {

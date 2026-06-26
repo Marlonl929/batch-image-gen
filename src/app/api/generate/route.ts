@@ -152,52 +152,62 @@ export async function POST(request: NextRequest) {
 
         let completed = 0;
 
-        // Process images sequentially to avoid rate limiting
-        for (let i = 0; i < total; i++) {
-          const imageUrl = imageUrls[i];
-
-          try {
-            send({ type: 'progress', current: completed + 1, total });
-
-            // Step 1: Submit task
-            const { task_id } = await submitTask({
+        // Step 1: Submit all tasks in parallel
+        send({ type: 'progress', current: 0, total });
+        const taskSubmissions = await Promise.allSettled(
+          imageUrls.map((imageUrl: string, i: number) =>
+            submitTask({
               prompt: prompt.trim(),
               imageUrls: [imageUrl],
               size: size || '1:1',
               resolution: resolution || '2k',
               apiKey,
-            });
+            }).then(result => ({ index: i, ...result }))
+          )
+        );
 
-            // Step 2: Poll for result
-            const result = await pollTaskResult(task_id, apiKey, (progress) => {
-              // Optional: send progress updates
-              send({ type: 'progress', current: completed + progress / 100, total });
-            });
-
+        // Collect successfully submitted tasks
+        const pendingTasks: { index: number; task_id: string }[] = [];
+        for (const submission of taskSubmissions) {
+          if (submission.status === 'fulfilled') {
+            pendingTasks.push({ index: submission.value.index, task_id: submission.value.task_id });
+          } else {
             completed++;
+            const idx = taskSubmissions.indexOf(submission);
+            const errorMessage = submission.reason instanceof Error ? submission.reason.message : '提交任务失败';
             send({ type: 'progress', current: completed, total });
+            send({ type: 'result', index: idx, success: false, error: errorMessage });
+          }
+        }
 
-            if (result.success && result.imageUrl) {
-              send({
-                type: 'result',
-                index: i,
-                success: true,
-                imageUrl: result.imageUrl,
-              });
+        console.log(`[Generate] Submitted ${pendingTasks.length}/${total} tasks, failed: ${total - pendingTasks.length}`);
+
+        // Step 2: Poll all tasks in parallel
+        if (pendingTasks.length > 0) {
+          const pollResults = await Promise.allSettled(
+            pendingTasks.map(task =>
+              pollTaskResult(task.task_id, apiKey, (progress) => {
+                // Optional per-task progress
+              }).then(result => ({ index: task.index, ...result }))
+            )
+          );
+
+          for (const pollResult of pollResults) {
+            completed++;
+            if (pollResult.status === 'fulfilled') {
+              const { index, success, imageUrl, error } = pollResult.value;
+              send({ type: 'progress', current: completed, total });
+              if (success && imageUrl) {
+                send({ type: 'result', index, success: true, imageUrl });
+              } else {
+                send({ type: 'result', index, success: false, error: error || '生成失败' });
+              }
             } else {
-              send({
-                type: 'result',
-                index: i,
-                success: false,
-                error: result.error || '生成失败',
-              });
+              const idx = pendingTasks[pollResults.indexOf(pollResult)]?.index ?? 0;
+              const errorMessage = pollResult.reason instanceof Error ? pollResult.reason.message : '生成失败';
+              send({ type: 'progress', current: completed, total });
+              send({ type: 'result', index: idx, success: false, error: errorMessage });
             }
-          } catch (err) {
-            console.error('[Generate] Error processing image', i, ':', err);
-            completed++;
-            const errorMessage = err instanceof Error ? err.message : '生成失败';
-            send({ type: 'progress', current: completed, total });
-            send({ type: 'result', index: i, success: false, error: errorMessage });
           }
         }
 

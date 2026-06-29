@@ -28,6 +28,21 @@ export function ResultGallery({ images, results, progress, isGenerating, onRetry
 
   const downloadImage = async (url: string, filename: string) => {
     try {
+      // 处理 data URL（base64 格式）
+      if (url.startsWith('data:')) {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(blobUrl);
+        return;
+      }
+
       // 优先通过后端代理下载（避免 CORS 问题）
       const proxyUrl = `/api/download?url=${encodeURIComponent(url)}`;
       const response = await fetch(proxyUrl);

@@ -87,12 +87,12 @@ async function processSingleImage(
 
     const file = new File([imageBuffer], `image.${ext}`, { type: mime });
 
-    // 构建 multipart/form-data
+    // 构建 multipart/form-data（使用 b64_json 格式，避免返回 localhost URL）
     const formData = new FormData();
     formData.append('model', model || 'gpt-image-2');
     formData.append('prompt', prompt || '');
     formData.append('size', size);
-    formData.append('response_format', 'url');
+    formData.append('response_format', 'b64_json');
     formData.append('image', file);
 
     // 带重试的 API 调用
@@ -109,24 +109,45 @@ async function processSingleImage(
 
         if (response.ok) {
           const data = await response.json();
-          if (data.data && data.data.length > 0 && data.data[0].url) {
-            const imageUrl = data.data[0].url;
+          if (data.data && data.data.length > 0) {
+            const item = data.data[0];
 
-            // 检测无效 URL（localhost / 内网地址）→ 直接失败，不重试
-            if (isInvalidImageUrl(imageUrl)) {
-              console.warn(`[generate] 图片 ${idx} API 返回无效地址: ${imageUrl}`);
+            // 优先使用 b64_json（转为 data URL）
+            if (item.b64_json) {
+              const dataUrl = `data:image/png;base64,${item.b64_json}`;
               return {
-                index: item.index,
-                status: 'failed' as const,
-                error: 'API 返回了无效的图片地址（内网地址），请联系 API 提供方',
+                index: item.index !== undefined ? item.index : item.index,
+                status: 'completed' as const,
+                imageUrl: dataUrl,
+                revisedPrompt: item.revised_prompt,
               };
             }
 
+            // 兼容 url 格式
+            if (item.url) {
+              const imageUrl = item.url;
+              // 检测无效 URL（localhost / 内网地址）→ 直接失败，不重试
+              if (isInvalidImageUrl(imageUrl)) {
+                console.warn(`[generate] 图片 ${idx} API 返回无效地址: ${imageUrl}`);
+                return {
+                  index: item.index,
+                  status: 'failed' as const,
+                  error: 'API 返回了无效的图片地址（内网地址），请联系 API 提供方',
+                };
+              }
+              return {
+                index: item.index,
+                status: 'completed' as const,
+                imageUrl,
+                revisedPrompt: item.revised_prompt,
+              };
+            }
+
+            console.error(`[generate] 图片 ${idx} 返回数据异常:`, JSON.stringify(data).slice(0, 300));
             return {
               index: item.index,
-              status: 'completed' as const,
-              imageUrl,
-              revisedPrompt: data.data[0].revised_prompt,
+              status: 'failed' as const,
+              error: 'API 返回数据格式异常',
             };
           } else {
             console.error(`[generate] 图片 ${idx} 返回数据异常:`, JSON.stringify(data).slice(0, 300));

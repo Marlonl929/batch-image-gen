@@ -1,153 +1,122 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 const DEFAULT_API_URL = 'https://ncp.hayoz.top/v1';
 
-// Submit a single async image generation task
-async function submitTask(params: {
-  prompt: string;
-  imageUrls: string[];
-  size: string;
-  apiKey: string;
-  apiUrl: string;
-}): Promise<{ job_id: string; status: string }> {
-  const response = await fetch(`${params.apiUrl}/async/images/generations`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${params.apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-image-2',
-      prompt: params.prompt,
-      n: 1,
-      size: params.size,
-      response_format: 'url',
-      image_urls: params.imageUrls,
-    }),
-  });
-
-  const data = await response.json();
-
-  if (data.error) {
-    throw new Error(data.error.message || data.error || '提交任务失败');
-  }
-
-  // New API returns job_id directly
-  const jobId = data.job_id || data.id;
-  if (!jobId) {
-    throw new Error('未获取到任务ID');
-  }
-
-  return {
-    job_id: jobId,
-    status: data.status || 'queued',
-  };
-}
-
-/**
- * POST /api/generate
- * Only submits all tasks and returns their job_ids immediately.
- * No polling on server side — client will poll /api/task-status/[taskId] instead.
- * This avoids Vercel/Render serverless function timeout.
- */
+// 同步图生图 - 直接返回结果，无需轮询
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { imageUrls, prompt, size, apiKey, apiUrl } = body;
+    const { items, prompt, aspectRatio, resolution, size: sizeParam, model, strength, apiUrl: clientApiUrl } = body;
 
-    if (!apiKey || typeof apiKey !== 'string') {
-      return new Response(
-        JSON.stringify({ error: '请先在设置中配置 API Key' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ error: '请提供至少一张图片' }, { status: 400 });
     }
 
-    const baseUrl = (apiUrl && typeof apiUrl === 'string') ? apiUrl.replace(/\/+$/, '') : DEFAULT_API_URL;
-
-    if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length === 0) {
-      return new Response(
-        JSON.stringify({ error: '没有提供图片' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
+    const apiKey = request.headers.get('x-api-key');
+    if (!apiKey) {
+      return NextResponse.json({ error: '缺少 API Key' }, { status: 401 });
     }
 
-    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
-      return new Response(
-        JSON.stringify({ error: '请输入提示词' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
+    const apiUrl = (clientApiUrl || DEFAULT_API_URL).replace(/\/+$/, '');
 
-    // Calculate actual pixel size from aspect ratio
-    // The new API expects size like "1024x1024"
-    let pixelSize = '1024x1024';
-    if (size && size !== 'auto') {
-      // size is already in "WxH" format from frontend calculateSize, or it's an aspect ratio
-      if (size.includes('x')) {
-        pixelSize = size;
-      } else {
-        // Map common aspect ratios to pixel sizes
-        const ratioMap: Record<string, string> = {
-          '1:1': '1024x1024',
-          '16:9': '1536x864',
-          '9:16': '864x1536',
-          '4:3': '1364x1024',
-          '3:4': '1024x1364',
-          '3:2': '1536x1024',
-          '2:3': '1024x1536',
-          '5:4': '1280x1024',
-          '4:5': '1024x1280',
-          '21:9': '1536x658',
-          '9:21': '658x1536',
-          '1:3': '512x1536',
-          '3:1': '1536x512',
-          '2:1': '1536x768',
-          '1:2': '768x1536',
-        };
-        pixelSize = ratioMap[size] || '1024x1024';
-      }
-    }
+    // 并行处理所有图片（同步模式，直接返回结果）
+    const results = await Promise.all(
+      items.map(async (item: { imageUrl: string; index: number }, idx: number) => {
+        try {
+          // 计算图片尺寸
+          let size = '1024x1024';
+          if (sizeParam && typeof sizeParam === 'string') {
+            if (sizeParam.includes('x')) {
+              size = sizeParam;
+            } else {
+              // 旧格式 aspect ratio，转换为实际尺寸
+              const sizeMap: Record<string, string> = {
+                '1:1': '1024x1024',
+                '16:9': '1344x768',
+                '9:16': '768x1344',
+                '4:3': '1152x896',
+                '3:4': '896x1152',
+                '3:2': '1216x832',
+                '2:3': '832x1216',
+                '21:9': '1536x640',
+              };
+              size = sizeMap[sizeParam] || '1024x1024';
+            }
+          }
 
-    // Submit all tasks in parallel
-    const taskSubmissions = await Promise.allSettled(
-      imageUrls.map((imageUrl: string, i: number) =>
-        submitTask({
-          prompt: prompt.trim(),
-          imageUrls: [imageUrl],
-          size: pixelSize,
-          apiKey,
-          apiUrl: baseUrl,
-        }).then(result => ({ index: i, ...result }))
-      )
+          // 调用同步生图接口
+          const response = await fetch(`${apiUrl}/images/generations`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: model || 'gpt-image-2',
+              prompt: prompt || '',
+              size,
+              n: 1,
+              response_format: 'url',
+              image_urls: [item.imageUrl],
+            }),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[generate] 图片 ${idx} API 错误:`, response.status, errorText);
+            return {
+              index: item.index,
+              status: 'failed' as const,
+              error: `API 返回 ${response.status}: ${errorText.slice(0, 200)}`,
+            };
+          }
+
+          const data = await response.json();
+
+          // 同步接口直接返回结果
+          if (data.data && data.data.length > 0 && data.data[0].url) {
+            return {
+              index: item.index,
+              status: 'completed' as const,
+              imageUrl: data.data[0].url,
+              revisedPrompt: data.data[0].revised_prompt,
+            };
+          } else {
+            console.error(`[generate] 图片 ${idx} 返回数据异常:`, JSON.stringify(data).slice(0, 300));
+            return {
+              index: item.index,
+              status: 'failed' as const,
+              error: 'API 返回数据格式异常',
+            };
+          }
+        } catch (error) {
+          console.error(`[generate] 图片 ${idx} 处理失败:`, error);
+          return {
+            index: item.index,
+            status: 'failed' as const,
+            error: error instanceof Error ? error.message : '处理失败',
+          };
+        }
+      })
     );
 
-    // Build response with job_ids and any immediate failures
-    const tasks: { index: number; task_id: string }[] = [];
-    const immediateErrors: { index: number; error: string }[] = [];
-
-    for (let i = 0; i < taskSubmissions.length; i++) {
-      const submission = taskSubmissions[i];
-      if (submission.status === 'fulfilled') {
-        tasks.push({ index: submission.value.index, task_id: submission.value.job_id });
-      } else {
-        const errorMessage = submission.reason instanceof Error
-          ? submission.reason.message
-          : '提交任务失败';
-        immediateErrors.push({ index: i, error: errorMessage });
-      }
-    }
-
-    return new Response(
-      JSON.stringify({ tasks, immediateErrors }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    // 分类成功和失败的结果
+    const completedResults = results.filter(
+      (r: { status: string }) => r.status === 'completed'
     );
+    const failedResults = results.filter(
+      (r: { status: string }) => r.status === 'failed'
+    );
+
+    return NextResponse.json({
+      results: completedResults,
+      errors: failedResults,
+    });
   } catch (error) {
-    console.error('Generate error:', error);
-    return new Response(
-      JSON.stringify({
-        error: error instanceof Error ? error.message : '服务器内部错误',
-      }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    console.error('[generate] 处理失败:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : '处理失败' },
+      { status: 500 }
     );
   }
 }

@@ -240,82 +240,65 @@ export function useImageGeneration() {
     setProgress(null);
 
     try {
-      const imageUrls = uploadedEntries.map((e) => e.img.storageUrl);
-      // Map from API index (position in uploadedEntries) to original images index
-      const indexMap = uploadedEntries.map((e) => e.idx);
-
       if (failedUploads.length > 0) {
         console.warn(`${failedUploads.length} 张图片上传失败，将跳过`);
       }
-      console.log(`开始生成，共 ${imageUrls.length} 张图片`);
+      console.log(`开始生成，共 ${uploadedEntries.length} 张图片（同步模式）`);
 
-      // Submit all tasks (backend returns immediately with task_ids)
+      // 同步调用 - 直接返回结果
       const response = await fetch('/api/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+        },
         body: JSON.stringify({
-          imageUrls,
+          items: uploadedEntries.map((e) => ({ imageUrl: e.img.storageUrl, index: e.idx })),
           prompt: prompt.trim(),
-          size: aspectRatio,
+          aspectRatio,
           resolution: resolution.toLowerCase(),
-          apiKey,
+          size: aspectRatio,
+          model: 'gpt-image-2',
+          strength: 0.5,
           apiUrl,
         }),
       });
 
       if (!response.ok) {
         const errData = await response.json();
-        throw new Error(errData.error || '启动生成失败');
+        throw new Error(errData.error || '生成失败');
       }
 
-      const { tasks, immediateErrors } = await response.json();
+      const { results: apiResults, errors: apiErrors } = await response.json();
       const total = uploadedEntries.length;
 
-      // Add immediate errors to results (map API index to original index)
-      const initialResults: GenerationResult[] = immediateErrors.map(
-        (err: { index: number; error: string }) => ({
-          index: indexMap[err.index] ?? err.index,
-          success: false,
-          error: err.error,
-        })
-      );
-      setResults(initialResults);
-      setProgress({ current: immediateErrors.length, total });
+      // 构建结果列表
+      const newResults: GenerationResult[] = [];
 
-      // Client-side polling for each task
-      if (tasks.length > 0) {
-        const pollPromises = tasks.map(
-          (task: { index: number; task_id: string }) =>
-            pollTask(task.task_id, apiKey, apiUrl, () => {
-            }).then((result) => ({
-              // Map API index back to original images index
-              index: indexMap[task.index] ?? task.index,
-              ...result,
-            }))
-        );
-
-        const settledResults = await Promise.allSettled(pollPromises);
-
-        if (!abortRef.current) {
-          const newResults: GenerationResult[] = [];
-          for (const settled of settledResults) {
-            if (settled.status === 'fulfilled') {
-              newResults.push(settled.value);
-            } else {
-              const idx = settledResults.indexOf(settled);
-              const apiIndex = tasks[idx]?.index ?? 0;
-              const originalIndex = indexMap[apiIndex] ?? apiIndex;
-              newResults.push({
-                index: originalIndex,
-                success: false,
-                error: settled.reason?.message || '生成失败',
-              });
-            }
-          }
-          setResults((prev) => [...prev, ...newResults]);
-          setProgress({ current: total, total });
+      // 添加成功的结果
+      if (apiResults && Array.isArray(apiResults)) {
+        for (const r of apiResults) {
+          newResults.push({
+            index: r.index,
+            success: true,
+            imageUrl: r.imageUrl,
+          });
         }
       }
+
+      // 添加失败的结果
+      if (apiErrors && Array.isArray(apiErrors)) {
+        for (const r of apiErrors) {
+          newResults.push({
+            index: r.index,
+            success: false,
+            error: r.error || '生成失败',
+          });
+        }
+      }
+
+      setResults(newResults);
+      setProgress({ current: total, total });
     } catch (error) {
       console.error('Generation error:', error);
       throw error;

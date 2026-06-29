@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 
-const DEFAULT_API_URL = 'https://ncp.hayoz.top';
+const DEFAULT_API_URL = 'https://ncp.hayoz.top/v1';
 
 /**
  * GET /api/task-status/[taskId]?apiKey=xxx&apiUrl=xxx
@@ -31,7 +31,7 @@ export async function GET(
       );
     }
 
-    const response = await fetch(`${baseUrl}/v1/async/images/generations/${taskId}`, {
+    const response = await fetch(`${baseUrl}/async/images/generations/${taskId}`, {
       headers: {
         'Authorization': `Bearer ${apiKey}`,
       },

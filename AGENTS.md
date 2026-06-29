@@ -54,6 +54,6 @@ src/
   - 提交任务：POST /v1/async/images/generations → 返回 job_id
   - 轮询结果：GET /v1/async/images/generations/{job_id} → 返回图片 URL
   - 参数：model（gpt-image-2）、prompt、size（如1024x1024）、image_urls（参考图 URL 数组）
-  - 默认 API 地址：https://ncp.hayoz.top
+  - 默认 API 地址：https://ncp.hayoz.top/v1
 - 下载跨域图片必须用 fetch + blob，不能用 <a download>
 - API Key 通过前端 localStorage 管理，不依赖服务端环境变量

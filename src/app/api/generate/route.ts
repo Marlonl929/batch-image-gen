@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 
-const DEFAULT_API_URL = 'https://ncp.hayoz.top';
+const DEFAULT_API_URL = 'https://ncp.hayoz.top/v1';
 
 // Submit a single async image generation task
 async function submitTask(params: {
@@ -10,7 +10,7 @@ async function submitTask(params: {
   apiKey: string;
   apiUrl: string;
 }): Promise<{ job_id: string; status: string }> {
-  const response = await fetch(`${params.apiUrl}/v1/async/images/generations`, {
+  const response = await fetch(`${params.apiUrl}/async/images/generations`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${params.apiKey}`,

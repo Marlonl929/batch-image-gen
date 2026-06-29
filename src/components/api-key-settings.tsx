@@ -13,7 +13,7 @@ import {
 
 const STORAGE_KEY_API_KEY = 'apimart_api_key';
 const STORAGE_KEY_API_URL = 'apimart_api_url';
-const DEFAULT_API_URL = 'https://ncp.hayoz.top';
+const DEFAULT_API_URL = 'https://ncp.hayoz.top/v1';
 
 export function ApiKeySettings() {
   const [open, setOpen] = useState(false);
@@ -110,11 +110,11 @@ export function ApiKeySettings() {
               type="text"
               value={apiUrl}
               onChange={(e) => setApiUrl(e.target.value)}
-              placeholder="https://ncp.hayoz.top"
+              placeholder="https://ncp.hayoz.top/v1"
               className="w-full h-10 px-3 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 transition-colors"
             />
             <p className="text-xs text-zinc-600">
-              默认：https://ncp.hayoz.top，可替换为其他兼容接口地址
+              默认：https://ncp.hayoz.top/v1，可替换为其他兼容接口地址
             </p>
           </div>
 

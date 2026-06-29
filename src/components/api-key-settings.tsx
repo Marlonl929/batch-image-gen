@@ -13,7 +13,7 @@ import {
 
 const STORAGE_KEY_API_KEY = 'apimart_api_key';
 const STORAGE_KEY_API_URL = 'apimart_api_url';
-const DEFAULT_API_URL = 'https://openqi.sbs/v1';
+const DEFAULT_API_URL = 'https://api.manxiaobai.online/v1';
 
 export function ApiKeySettings() {
   const [open, setOpen] = useState(false);

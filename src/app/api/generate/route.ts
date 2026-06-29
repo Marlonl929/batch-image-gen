@@ -184,7 +184,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '参数不完整' }, { status: 400 });
     }
 
-    const effectiveApiUrl = apiUrl || DEFAULT_API_URL;
+    let effectiveApiUrl = (apiUrl || DEFAULT_API_URL).replace(/\/+$/, '');
+    // 校验 URL 格式，确保是完整的 http(s) 地址
+    if (!effectiveApiUrl.startsWith('http://') && !effectiveApiUrl.startsWith('https://')) {
+      effectiveApiUrl = DEFAULT_API_URL;
+    }
     const effectiveModel = model || DEFAULT_MODEL;
 
     // 计算尺寸

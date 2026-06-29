@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
+import { compressImage } from '@/lib/image-compressor';
 
 export interface UploadedImage {
   id: string;
@@ -131,8 +132,11 @@ export function useImageGeneration() {
     );
 
     try {
+      // Compress image if needed (only compress if file > 1.5MB)
+      const compressedFile = await compressImage(file);
+
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', compressedFile);
 
       const response = await fetch('/api/upload', {
         method: 'POST',

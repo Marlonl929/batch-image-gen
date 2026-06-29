@@ -1,296 +1,232 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 
-const DEFAULT_API_URL = 'https://ncp.hayoz.top/v1';
-const CONCURRENCY = 5; // 并发数，避免服务器过载导致 524 超时
-const MAX_RETRIES = 3; // 可重试错误最多重试 3 次
-const RETRY_DELAY = 3000; // 重试基础间隔 3 秒
-const BATCH_DELAY = 1000; // 批次间间隔 1 秒
-
-// 可重试的 HTTP 状态码
-const RETRYABLE_STATUS = new Set([429, 524, 502, 503, 504]);
-
-// 检测无效的图片 URL（localhost / 127.0.0.1 / 内网地址）
-function isInvalidImageUrl(url: string): boolean {
-  const invalid = [
-    '127.0.0.1',
-    'localhost',
-    '0.0.0.0',
-    '192.168.',
-    '10.',
-    '172.16.',
-    '172.17.',
-    '172.18.',
-    '172.19.',
-    '172.20.',
-    '172.21.',
-    '172.22.',
-    '172.23.',
-    '172.24.',
-    '172.25.',
-    '172.26.',
-    '172.27.',
-    '172.28.',
-    '172.29.',
-    '172.30.',
-    '172.31.',
-  ];
-  const lower = url.toLowerCase();
-  return invalid.some(prefix => lower.includes(prefix));
-}
-
-// 通过 magic bytes 检测图片真实格式
-function detectImageFormat(buffer: Uint8Array): { ext: string; mime: string } {
-  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
-    return { ext: 'jpg', mime: 'image/jpeg' };
-  }
-  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
-    return { ext: 'png', mime: 'image/png' };
-  }
-  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
-    return { ext: 'gif', mime: 'image/gif' };
-  }
-  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) {
-    return { ext: 'webp', mime: 'image/webp' };
-  }
-  return { ext: 'png', mime: 'image/png' };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// 处理单张图片
-async function processSingleImage(
-  item: { imageUrl: string; index: number },
-  idx: number,
-  prompt: string,
-  size: string,
-  model: string,
-  apiUrl: string,
-  apiKey: string
-): Promise<{
+interface GenerationResult {
   index: number;
   status: 'completed' | 'failed';
   imageUrl?: string;
   revisedPrompt?: string;
   error?: string;
-}> {
-  try {
-    // 下载原始图片
-    const imageResponse = await fetch(item.imageUrl);
-    if (!imageResponse.ok) {
-      throw new Error(`下载图片失败: ${imageResponse.status}`);
-    }
-    const imageBuffer = await imageResponse.arrayBuffer();
-    const headerBytes = new Uint8Array(imageBuffer.slice(0, 4));
-    const { ext, mime } = detectImageFormat(headerBytes);
-
-    const file = new File([imageBuffer], `image.${ext}`, { type: mime });
-
-    // 构建 multipart/form-data（使用 b64_json 格式，避免返回 localhost URL）
-    const formData = new FormData();
-    formData.append('model', model || 'gpt-image-2');
-    formData.append('prompt', prompt || '');
-    formData.append('size', size);
-    formData.append('response_format', 'b64_json');
-    formData.append('image', file);
-
-    // 带重试的 API 调用
-    let lastError = '';
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      try {
-        const response = await fetch(`${apiUrl}/images/edits`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-          },
-          body: formData,
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.data && data.data.length > 0) {
-            const item = data.data[0];
-
-            // 优先使用 b64_json（转为 data URL）
-            if (item.b64_json) {
-              const dataUrl = `data:image/png;base64,${item.b64_json}`;
-              return {
-                index: item.index !== undefined ? item.index : item.index,
-                status: 'completed' as const,
-                imageUrl: dataUrl,
-                revisedPrompt: item.revised_prompt,
-              };
-            }
-
-            // 兼容 url 格式
-            if (item.url) {
-              const imageUrl = item.url;
-              // 检测无效 URL（localhost / 内网地址）→ 直接失败，不重试
-              if (isInvalidImageUrl(imageUrl)) {
-                console.warn(`[generate] 图片 ${idx} API 返回无效地址: ${imageUrl}`);
-                return {
-                  index: item.index,
-                  status: 'failed' as const,
-                  error: 'API 返回了无效的图片地址（内网地址），请联系 API 提供方',
-                };
-              }
-              return {
-                index: item.index,
-                status: 'completed' as const,
-                imageUrl,
-                revisedPrompt: item.revised_prompt,
-              };
-            }
-
-            console.error(`[generate] 图片 ${idx} 返回数据异常:`, JSON.stringify(data).slice(0, 300));
-            return {
-              index: item.index,
-              status: 'failed' as const,
-              error: 'API 返回数据格式异常',
-            };
-          } else {
-            console.error(`[generate] 图片 ${idx} 返回数据异常:`, JSON.stringify(data).slice(0, 300));
-            return {
-              index: item.index,
-              status: 'failed' as const,
-              error: 'API 返回数据格式异常',
-            };
-          }
-        }
-
-        const errorText = await response.text();
-        lastError = `API 返回 ${response.status}: ${errorText.slice(0, 200)}`;
-
-        // 可重试状态码 → 等待后重试
-        if (RETRYABLE_STATUS.has(response.status)) {
-          const delay = RETRY_DELAY * (attempt + 1);
-          console.warn(`[generate] 图片 ${idx} 遇到 ${response.status}，${delay}ms 后重试 (${attempt + 1}/${MAX_RETRIES})`);
-          await sleep(delay);
-          continue;
-        }
-
-        // 不可重试的错误直接返回失败
-        console.error(`[generate] 图片 ${idx} API 错误:`, response.status, errorText);
-        return {
-          index: item.index,
-          status: 'failed' as const,
-          error: lastError,
-        };
-      } catch (fetchError) {
-        // fetch 本身失败（网络错误、DNS 解析失败等）
-        lastError = fetchError instanceof Error ? fetchError.message : '网络请求失败';
-        const delay = RETRY_DELAY * (attempt + 1);
-        console.warn(`[generate] 图片 ${idx} 网络错误: ${lastError}，${delay}ms 后重试 (${attempt + 1}/${MAX_RETRIES})`);
-        await sleep(delay);
-      }
-    }
-
-    // 重试耗尽
-    console.error(`[generate] 图片 ${idx} 重试 ${MAX_RETRIES} 次后仍失败`);
-    return {
-      index: item.index,
-      status: 'failed' as const,
-      error: `${lastError}（已重试 ${MAX_RETRIES} 次）`,
-    };
-  } catch (error) {
-    console.error(`[generate] 图片 ${idx} 处理失败:`, error);
-    return {
-      index: item.index,
-      status: 'failed' as const,
-      error: error instanceof Error ? error.message : '处理失败',
-    };
-  }
 }
 
-// 分批处理图片
-async function processInBatches(
-  items: { imageUrl: string; index: number }[],
-  prompt: string,
-  size: string,
-  model: string,
-  apiUrl: string,
-  apiKey: string
-) {
-  const allResults: Awaited<ReturnType<typeof processSingleImage>>[] = [];
+// Submit image generation task to APIMart
+async function submitTask(params: {
+  apiUrl: string;
+  apiKey: string;
+  prompt: string;
+  imageUrls: string[];
+  size: string;
+  resolution: string;
+  model: string;
+}): Promise<{ task_id: string }> {
+  const response = await fetch(`${params.apiUrl}/images/generations`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${params.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: params.model || 'gpt-image-2',
+      prompt: params.prompt,
+      n: 1,
+      size: params.size,
+      resolution: params.resolution,
+      image_urls: params.imageUrls,
+    }),
+  });
 
-  for (let i = 0; i < items.length; i += CONCURRENCY) {
-    const batch = items.slice(i, i + CONCURRENCY);
-    console.log(`[generate] 处理批次 ${Math.floor(i / CONCURRENCY) + 1}: 图片 ${batch.map(b => b.index).join(', ')}`);
-
-    const batchResults = await Promise.all(
-      batch.map((item, batchIdx) =>
-        processSingleImage(item, i + batchIdx, prompt, size, model, apiUrl, apiKey)
-      )
-    );
-
-    allResults.push(...batchResults);
-
-    // 批次间间隔，给服务器喘息时间
-    if (i + CONCURRENCY < items.length) {
-      await sleep(BATCH_DELAY);
-    }
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`API 返回 ${response.status}: ${text.slice(0, 200)}`);
   }
 
-  return allResults;
+  const data = await response.json();
+
+  if (data.error) {
+    throw new Error(data.error.message || '提交任务失败');
+  }
+
+  if (!data.data?.[0]?.task_id) {
+    throw new Error('未获取到任务ID');
+  }
+
+  return { task_id: data.data[0].task_id };
+}
+
+// Poll task status until completion
+async function pollTaskResult(params: {
+  apiUrl: string;
+  apiKey: string;
+  taskId: string;
+  maxAttempts?: number;
+}): Promise<{ success: boolean; imageUrl?: string; revisedPrompt?: string; error?: string }> {
+  const { apiUrl, apiKey, taskId } = params;
+  const maxAttempts = params.maxAttempts || 60;
+  let attempts = 0;
+
+  while (attempts < maxAttempts) {
+    const response = await fetch(`${apiUrl}/tasks/${taskId}`, {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`查询任务失败 (${response.status}): ${text.slice(0, 200)}`);
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(data.error.message || '查询任务失败');
+    }
+
+    const taskData = data.data;
+    const status = taskData?.status;
+
+    if (status === 'completed') {
+      const imageUrl = taskData?.result?.images?.[0]?.url?.[0];
+      const revisedPrompt = taskData?.result?.images?.[0]?.revised_prompt;
+      if (imageUrl) {
+        return { success: true, imageUrl, revisedPrompt };
+      }
+      return { success: false, error: '未获取到生成结果' };
+    }
+
+    if (status === 'failed') {
+      return { success: false, error: taskData?.error?.message || '生成失败' };
+    }
+
+    // Wait 5 seconds before next poll
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    attempts++;
+  }
+
+  return { success: false, error: '任务超时（5分钟）' };
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { items, prompt, aspectRatio, resolution, size: sizeParam, model, strength, apiUrl: clientApiUrl } = body;
+    const apiKey = request.headers.get('x-api-key') || '';
+    const { items, prompt, aspectRatio, resolution, size, model } = body;
+
+    // Resolve API URL: frontend-provided or default
+    const apiUrl = (body.apiUrl || 'https://api.apimart.ai/v1').replace(/\/+$/, '');
+
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({ error: '未设置 API Key，请点击右上角设置按钮输入' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (!items || !Array.isArray(items) || items.length === 0) {
-      return NextResponse.json({ error: '请提供至少一张图片' }, { status: 400 });
+      return new Response(
+        JSON.stringify({ error: '没有提供图片' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
-    const apiKey = request.headers.get('x-api-key');
-    if (!apiKey) {
-      return NextResponse.json({ error: '缺少 API Key' }, { status: 401 });
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+      return new Response(
+        JSON.stringify({ error: '请输入提示词' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
-    const apiUrl = (clientApiUrl || DEFAULT_API_URL).replace(/\/+$/, '');
+    // Map aspect ratio to size if not provided
+    const sizeMap: Record<string, string> = {
+      '1:1': '1024x1024', '3:2': '1536x1024', '2:3': '1024x1536',
+      '4:3': '1365x1024', '3:4': '1024x1365', '16:9': '1792x1024',
+      '9:16': '1024x1792', '21:9': '1920x832', '5:4': '1280x1024',
+      '4:5': '1024x1280', '3:1': '2688x896', '1:3': '896x2688',
+    };
+    const pixelSize = sizeMap[aspectRatio] || sizeMap[size] || '1024x1024';
 
-    // 计算图片尺寸
-    let size = '1024x1024';
-    if (sizeParam && typeof sizeParam === 'string') {
-      if (sizeParam.includes('x')) {
-        size = sizeParam;
-      } else {
-        const sizeMap: Record<string, string> = {
-          '1:1': '1024x1024',
-          '16:9': '1344x768',
-          '9:16': '768x1344',
-          '4:3': '1152x896',
-          '3:4': '896x1152',
-          '3:2': '1216x832',
-          '2:3': '832x1216',
-          '21:9': '1536x640',
-        };
-        size = sizeMap[sizeParam] || '1024x1024';
+    console.log(`[generate] Processing ${items.length} images, size=${pixelSize}, resolution=${resolution}`);
+
+    // Process images in batches of 5
+    const BATCH_SIZE = 5;
+    const results: GenerationResult[] = [];
+
+    for (let batchStart = 0; batchStart < items.length; batchStart += BATCH_SIZE) {
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, items.length);
+      const batch = items.slice(batchStart, batchEnd);
+
+      const batchPromises = batch.map(async (item: { imageUrl: string; index: number }) => {
+        try {
+          // Step 1: Submit task
+          const { task_id } = await submitTask({
+            apiUrl,
+            apiKey,
+            prompt: prompt.trim(),
+            imageUrls: [item.imageUrl],
+            size: pixelSize,
+            resolution: resolution || '2k',
+            model: model || 'gpt-image-2',
+          });
+
+          console.log(`[generate] Image ${item.index}: task submitted, id=${task_id}`);
+
+          // Step 2: Poll for result
+          const result = await pollTaskResult({ apiUrl, apiKey, taskId: task_id });
+
+          if (result.success && result.imageUrl) {
+            console.log(`[generate] Image ${item.index}: completed`);
+            return {
+              index: item.index,
+              status: 'completed' as const,
+              imageUrl: result.imageUrl,
+              revisedPrompt: result.revisedPrompt,
+            };
+          } else {
+            console.log(`[generate] Image ${item.index}: failed - ${result.error}`);
+            return {
+              index: item.index,
+              status: 'failed' as const,
+              error: result.error || '生成失败',
+            };
+          }
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : '生成失败';
+          console.error(`[generate] Image ${item.index}: error -`, errorMessage);
+          return {
+            index: item.index,
+            status: 'failed' as const,
+            error: errorMessage,
+          } as GenerationResult;
+        }
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+
+      // Delay between batches (1 second)
+      if (batchEnd < items.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
 
-    console.log(`[generate] 开始处理 ${items.length} 张图片, 并发数: ${CONCURRENCY}, 尺寸: ${size}`);
+    // Sort by index
+    results.sort((a, b) => a.index - b.index);
 
-    // 分批处理
-    const results = await processInBatches(items, prompt || '', size, model || 'gpt-image-2', apiUrl, apiKey);
+    const completed = results.filter(r => r.status === 'completed');
+    const failed = results.filter(r => r.status === 'failed');
 
-    // 分类结果
-    const completedResults = results.filter((r) => r.status === 'completed');
-    const failedResults = results.filter((r) => r.status === 'failed');
+    console.log(`[generate] Done: ${completed.length} success, ${failed.length} failed`);
 
-    console.log(`[generate] 处理完成: ${completedResults.length} 成功, ${failedResults.length} 失败`);
-
-    return NextResponse.json({
-      results: completedResults,
-      errors: failedResults,
-    });
+    return new Response(
+      JSON.stringify({ results: completed, errors: failed }),
+      { headers: { 'Content-Type': 'application/json' } }
+    );
   } catch (error) {
-    console.error('[generate] 处理失败:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : '处理失败' },
-      { status: 500 }
+    console.error('Generate error:', error);
+    return new Response(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : '服务器内部错误',
+      }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }

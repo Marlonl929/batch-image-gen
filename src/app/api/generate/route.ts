@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const DEFAULT_API_URL = 'https://ncp.hayoz.top/v1';
 
-// 同步图生图 - 直接返回结果，无需轮询
+// 同步图生图 - 使用 /v1/images/edits 接口（multipart/form-data）
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
 
     const apiUrl = (clientApiUrl || DEFAULT_API_URL).replace(/\/+$/, '');
 
-    // 并行处理所有图片（同步模式，直接返回结果）
+    // 并行处理所有图片
     const results = await Promise.all(
       items.map(async (item: { imageUrl: string; index: number }, idx: number) => {
         try {
@@ -29,7 +29,6 @@ export async function POST(request: NextRequest) {
             if (sizeParam.includes('x')) {
               size = sizeParam;
             } else {
-              // 旧格式 aspect ratio，转换为实际尺寸
               const sizeMap: Record<string, string> = {
                 '1:1': '1024x1024',
                 '16:9': '1344x768',
@@ -44,21 +43,33 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // 调用同步生图接口
-          const response = await fetch(`${apiUrl}/images/generations`, {
+          // 下载原始图片
+          const imageResponse = await fetch(item.imageUrl);
+          if (!imageResponse.ok) {
+            throw new Error(`下载图片失败: ${imageResponse.status}`);
+          }
+          const imageBlob = await imageResponse.blob();
+          const imageContentType = imageResponse.headers.get('content-type') || 'image/png';
+
+          // 确定文件扩展名
+          const ext = imageContentType.includes('jpeg') || imageContentType.includes('jpg')
+            ? 'png' : 'png'; // OpenAI edits API 要求 PNG
+
+          // 构建 multipart/form-data
+          const formData = new FormData();
+          formData.append('model', model || 'gpt-image-2');
+          formData.append('prompt', prompt || '');
+          formData.append('size', size);
+          formData.append('response_format', 'url');
+          formData.append('image', imageBlob, `image.${ext}`);
+
+          // 调用 /v1/images/edits 接口（图生图）
+          const response = await fetch(`${apiUrl}/images/edits`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              model: model || 'gpt-image-2',
-              prompt: prompt || '',
-              size,
-              n: 1,
-              response_format: 'url',
-              image_urls: [item.imageUrl],
-            }),
+            body: formData,
           });
 
           if (!response.ok) {

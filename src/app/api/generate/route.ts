@@ -1,9 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const DEFAULT_API_URL = 'https://ncp.hayoz.top/v1';
-const CONCURRENCY = 100; // 并发数（API 已提升至 100）
-const MAX_RETRIES = 3; // 429 错误最多重试 3 次
-const RETRY_DELAY = 2000; // 重试间隔 2 秒
+const CONCURRENCY = 5; // 并发数，避免服务器过载导致 524 超时
+const MAX_RETRIES = 3; // 可重试错误最多重试 3 次
+const RETRY_DELAY = 3000; // 重试基础间隔 3 秒
+const BATCH_DELAY = 1000; // 批次间间隔 1 秒
+
+// 可重试的 HTTP 状态码
+const RETRYABLE_STATUS = new Set([429, 524, 502, 503, 504]);
+
+// 检测无效的图片 URL（localhost / 127.0.0.1 / 内网地址）
+function isInvalidImageUrl(url: string): boolean {
+  const invalid = [
+    '127.0.0.1',
+    'localhost',
+    '0.0.0.0',
+    '192.168.',
+    '10.',
+    '172.16.',
+    '172.17.',
+    '172.18.',
+    '172.19.',
+    '172.20.',
+    '172.21.',
+    '172.22.',
+    '172.23.',
+    '172.24.',
+    '172.25.',
+    '172.26.',
+    '172.27.',
+    '172.28.',
+    '172.29.',
+    '172.30.',
+    '172.31.',
+  ];
+  const lower = url.toLowerCase();
+  return invalid.some(prefix => lower.includes(prefix));
+}
 
 // 通过 magic bytes 检测图片真实格式
 function detectImageFormat(buffer: Uint8Array): { ext: string; mime: string } {
@@ -19,11 +52,9 @@ function detectImageFormat(buffer: Uint8Array): { ext: string; mime: string } {
   if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46) {
     return { ext: 'webp', mime: 'image/webp' };
   }
-  // 默认 PNG
   return { ext: 'png', mime: 'image/png' };
 }
 
-// 延时函数
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -54,7 +85,6 @@ async function processSingleImage(
     const headerBytes = new Uint8Array(imageBuffer.slice(0, 4));
     const { ext, mime } = detectImageFormat(headerBytes);
 
-    // 创建正确的 File 对象（MIME 类型和扩展名匹配）
     const file = new File([imageBuffer], `image.${ext}`, { type: mime });
 
     // 构建 multipart/form-data
@@ -65,54 +95,75 @@ async function processSingleImage(
     formData.append('response_format', 'url');
     formData.append('image', file);
 
-    // 带重试的 API 调用（处理 429 并发限制）
+    // 带重试的 API 调用
     let lastError = '';
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      const response = await fetch(`${apiUrl}/images/edits`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: formData,
-      });
+      try {
+        const response = await fetch(`${apiUrl}/images/edits`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+          },
+          body: formData,
+        });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.data && data.data.length > 0 && data.data[0].url) {
-          return {
-            index: item.index,
-            status: 'completed' as const,
-            imageUrl: data.data[0].url,
-            revisedPrompt: data.data[0].revised_prompt,
-          };
-        } else {
-          console.error(`[generate] 图片 ${idx} 返回数据异常:`, JSON.stringify(data).slice(0, 300));
-          return {
-            index: item.index,
-            status: 'failed' as const,
-            error: 'API 返回数据格式异常',
-          };
+        if (response.ok) {
+          const data = await response.json();
+          if (data.data && data.data.length > 0 && data.data[0].url) {
+            const imageUrl = data.data[0].url;
+
+            // 检测无效 URL（localhost / 内网地址）
+            if (isInvalidImageUrl(imageUrl)) {
+              console.warn(`[generate] 图片 ${idx} API 返回无效地址: ${imageUrl}`);
+              lastError = 'API 返回了无效的图片地址（内网/本地地址），请重试';
+              // 当作可重试错误处理
+              const delay = RETRY_DELAY * (attempt + 1);
+              console.warn(`[generate] 图片 ${idx} 无效地址，${delay}ms 后重试 (${attempt + 1}/${MAX_RETRIES})`);
+              await sleep(delay);
+              continue;
+            }
+
+            return {
+              index: item.index,
+              status: 'completed' as const,
+              imageUrl,
+              revisedPrompt: data.data[0].revised_prompt,
+            };
+          } else {
+            console.error(`[generate] 图片 ${idx} 返回数据异常:`, JSON.stringify(data).slice(0, 300));
+            return {
+              index: item.index,
+              status: 'failed' as const,
+              error: 'API 返回数据格式异常',
+            };
+          }
         }
-      }
 
-      const errorText = await response.text();
-      lastError = `API 返回 ${response.status}: ${errorText.slice(0, 200)}`;
+        const errorText = await response.text();
+        lastError = `API 返回 ${response.status}: ${errorText.slice(0, 200)}`;
 
-      // 429 并发限制 → 等待后重试
-      if (response.status === 429) {
-        const delay = RETRY_DELAY * (attempt + 1); // 递增延迟：2s, 4s, 6s
-        console.warn(`[generate] 图片 ${idx} 触发并发限制 (429)，${delay}ms 后重试 (${attempt + 1}/${MAX_RETRIES})`);
+        // 可重试状态码 → 等待后重试
+        if (RETRYABLE_STATUS.has(response.status)) {
+          const delay = RETRY_DELAY * (attempt + 1);
+          console.warn(`[generate] 图片 ${idx} 遇到 ${response.status}，${delay}ms 后重试 (${attempt + 1}/${MAX_RETRIES})`);
+          await sleep(delay);
+          continue;
+        }
+
+        // 不可重试的错误直接返回失败
+        console.error(`[generate] 图片 ${idx} API 错误:`, response.status, errorText);
+        return {
+          index: item.index,
+          status: 'failed' as const,
+          error: lastError,
+        };
+      } catch (fetchError) {
+        // fetch 本身失败（网络错误、DNS 解析失败等）
+        lastError = fetchError instanceof Error ? fetchError.message : '网络请求失败';
+        const delay = RETRY_DELAY * (attempt + 1);
+        console.warn(`[generate] 图片 ${idx} 网络错误: ${lastError}，${delay}ms 后重试 (${attempt + 1}/${MAX_RETRIES})`);
         await sleep(delay);
-        continue;
       }
-
-      // 非 429 错误直接返回失败
-      console.error(`[generate] 图片 ${idx} API 错误:`, response.status, errorText);
-      return {
-        index: item.index,
-        status: 'failed' as const,
-        error: lastError,
-      };
     }
 
     // 重试耗尽
@@ -132,7 +183,7 @@ async function processSingleImage(
   }
 }
 
-// 分批处理图片（控制并发数）
+// 分批处理图片
 async function processInBatches(
   items: { imageUrl: string; index: number }[],
   prompt: string,
@@ -154,6 +205,11 @@ async function processInBatches(
     );
 
     allResults.push(...batchResults);
+
+    // 批次间间隔，给服务器喘息时间
+    if (i + CONCURRENCY < items.length) {
+      await sleep(BATCH_DELAY);
+    }
   }
 
   return allResults;
@@ -200,13 +256,9 @@ export async function POST(request: NextRequest) {
     // 分批处理
     const results = await processInBatches(items, prompt || '', size, model || 'gpt-image-2', apiUrl, apiKey);
 
-    // 分类成功和失败的结果
-    const completedResults = results.filter(
-      (r) => r.status === 'completed'
-    );
-    const failedResults = results.filter(
-      (r) => r.status === 'failed'
-    );
+    // 分类结果
+    const completedResults = results.filter((r) => r.status === 'completed');
+    const failedResults = results.filter((r) => r.status === 'failed');
 
     console.log(`[generate] 处理完成: ${completedResults.length} 成功, ${failedResults.length} 失败`);
 

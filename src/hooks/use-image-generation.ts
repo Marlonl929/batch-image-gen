@@ -277,35 +277,55 @@ export function useImageGeneration() {
         throw new Error(errMsg);
       }
 
-      const { results: apiResults, errors: apiErrors } = await response.json();
       const total = uploadedEntries.length;
-
-      // 构建结果列表
       const newResults: GenerationResult[] = [];
 
-      // 添加成功的结果
-      if (apiResults && Array.isArray(apiResults)) {
-        for (const r of apiResults) {
-          newResults.push({
-            index: r.index,
-            success: true,
-            imageUrl: r.imageUrl,
-          });
+      // 读取 SSE 流式响应
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr) continue;
+
+            try {
+              const event = JSON.parse(jsonStr);
+
+              if (event.type === 'progress') {
+                setProgress({ current: event.current, total: event.total });
+              } else if (event.type === 'result') {
+                newResults.push({
+                  index: event.index,
+                  success: true,
+                  imageUrl: event.imageUrl,
+                });
+                setResults([...newResults]);
+              } else if (event.type === 'error') {
+                newResults.push({
+                  index: event.index,
+                  success: false,
+                  error: event.error || '生成失败',
+                });
+                setResults([...newResults]);
+              }
+            } catch {
+              // ignore parse errors
+            }
+          }
         }
       }
 
-      // 添加失败的结果
-      if (apiErrors && Array.isArray(apiErrors)) {
-        for (const r of apiErrors) {
-          newResults.push({
-            index: r.index,
-            success: false,
-            error: r.error || '生成失败',
-          });
-        }
-      }
-
-      setResults(newResults);
       setProgress({ current: total, total });
     } catch (error) {
       console.error('Generation error:', error);
@@ -370,25 +390,43 @@ export function useImageGeneration() {
         throw new Error(errMsg);
       }
 
-      const { results: apiResults, errors: apiErrors } = await response.json();
+      // 读取 SSE 流式响应
+      const retryReader = response.body?.getReader();
+      const retryDecoder = new TextDecoder();
+      let retryBuffer = '';
 
-      // 更新成功结果
-      if (apiResults && Array.isArray(apiResults)) {
-        for (const r of apiResults) {
-          setResults((prev) => {
-            const filtered = prev.filter((x) => x.index !== r.index);
-            return [...filtered, { index: r.index, success: true, imageUrl: r.imageUrl }];
-          });
-        }
-      }
+      if (retryReader) {
+        while (true) {
+          const { done, value } = await retryReader.read();
+          if (done) break;
 
-      // 更新失败原因
-      if (apiErrors && Array.isArray(apiErrors)) {
-        for (const r of apiErrors) {
-          setResults((prev) => {
-            const filtered = prev.filter((x) => x.index !== r.index);
-            return [...filtered, { index: r.index, success: false, error: r.error || '生成失败' }];
-          });
+          retryBuffer += retryDecoder.decode(value, { stream: true });
+          const lines = retryBuffer.split('\n');
+          retryBuffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr) continue;
+
+            try {
+              const event = JSON.parse(jsonStr);
+
+              if (event.type === 'result') {
+                setResults((prev) => {
+                  const filtered = prev.filter((x) => x.index !== event.index);
+                  return [...filtered, { index: event.index, success: true, imageUrl: event.imageUrl }];
+                });
+              } else if (event.type === 'error') {
+                setResults((prev) => {
+                  const filtered = prev.filter((x) => x.index !== event.index);
+                  return [...filtered, { index: event.index, success: false, error: event.error || '生成失败' }];
+                });
+              }
+            } catch {
+              // skip malformed SSE line
+            }
+          }
         }
       }
     } catch (error) {

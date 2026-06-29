@@ -27,6 +27,7 @@ export default function Home() {
     clearImages,
     startGeneration,
     retryFailedGeneration,
+    retryUpload,
   } = useImageGeneration();
 
   const { addRecord } = useGenerationHistory();
@@ -124,6 +125,7 @@ export default function Home() {
               onAdd={addImages}
               onRemove={removeImage}
               onClear={clearImages}
+              onRetryUpload={retryUpload}
               disabled={isGenerating}
             />
 

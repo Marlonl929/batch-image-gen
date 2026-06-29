@@ -9,6 +9,7 @@ export interface UploadedImage {
   storageUrl: string;
   storageKey: string;
   uploading: boolean;
+  uploaded: boolean;
   uploadError?: string;
 }
 
@@ -120,6 +121,50 @@ export function useImageGeneration() {
   const [results, setResults] = useState<GenerationResult[]>([]);
   const abortRef = useRef(false);
 
+  const uploadSingleImage = useCallback(async (imageId: string, file: File) => {
+    // Mark as uploading
+    setImages((prev) =>
+      prev.map((img) =>
+        img.id === imageId ? { ...img, uploading: true, uploadError: undefined } : img
+      )
+    );
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || '上传失败');
+      }
+
+      const data = await response.json();
+
+      // Mark as uploaded successfully
+      setImages((prev) =>
+        prev.map((img) =>
+          img.id === imageId
+            ? { ...img, uploading: false, uploaded: true, storageUrl: data.url, storageKey: data.key }
+            : img
+        )
+      );
+    } catch (error) {
+      // Mark as upload failed
+      setImages((prev) =>
+        prev.map((img) =>
+          img.id === imageId
+            ? { ...img, uploading: false, uploaded: false, uploadError: error instanceof Error ? error.message : '上传失败' }
+            : img
+        )
+      );
+    }
+  }, []);
+
   const addImages = useCallback((files: FileList | File[]) => {
     const newImages: UploadedImage[] = Array.from(files)
       .filter((f) => f.type.startsWith('image/'))
@@ -130,10 +175,16 @@ export function useImageGeneration() {
         storageUrl: '',
         storageKey: '',
         uploading: false,
+        uploaded: false,
       }));
 
     setImages((prev) => [...prev, ...newImages]);
-  }, []);
+
+    // Immediately start uploading each image
+    newImages.forEach((img) => {
+      uploadSingleImage(img.id, img.file);
+    });
+  }, [uploadSingleImage]);
 
   const removeImage = useCallback((id: string) => {
     setImages((prev) => {
@@ -152,31 +203,30 @@ export function useImageGeneration() {
     setProgress(null);
   }, []);
 
-  const uploadImage = async (image: UploadedImage): Promise<UploadedImage> => {
-    const formData = new FormData();
-    formData.append('file', image.file);
+  const startGeneration = useCallback(async () => {
+    // Only use successfully uploaded images, keep track of original indices
+    const uploadedEntries = images
+      .map((img, idx) => ({ img, idx }))
+      .filter((e) => e.img.uploaded && e.img.storageUrl);
+    const failedUploads = images.filter((img) => img.uploadError);
+    const stillUploading = images.filter((img) => img.uploading);
 
-    const response = await fetch('/api/upload', {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || '上传失败');
+    if (stillUploading.length > 0) {
+      throw new Error(`还有 ${stillUploading.length} 张图片正在上传中，请等待上传完成`);
     }
 
-    const data = await response.json();
-    return {
-      ...image,
-      storageUrl: data.url,
-      storageKey: data.key,
-      uploading: false,
-    };
-  };
+    if (uploadedEntries.length === 0) {
+      throw new Error('没有已上传成功的图片，请重新添加图片');
+    }
 
-  const startGeneration = useCallback(async () => {
-    if (images.length === 0 || !prompt.trim()) return;
+    if (!prompt.trim()) {
+      throw new Error('请输入提示词');
+    }
+
+    const apiKey = localStorage.getItem('apimart_api_key') || '';
+    if (!apiKey) {
+      throw new Error('请先在右上角设置中配置 APIMart API Key');
+    }
 
     abortRef.current = false;
     setIsGenerating(true);
@@ -184,38 +234,16 @@ export function useImageGeneration() {
     setProgress(null);
 
     try {
-      // Upload all images first
-      setImages((prev) => prev.map((img) => ({ ...img, uploading: true })));
+      const imageUrls = uploadedEntries.map((e) => e.img.storageUrl);
+      // Map from API index (position in uploadedEntries) to original images index
+      const indexMap = uploadedEntries.map((e) => e.idx);
 
-      const uploadResults = await Promise.allSettled(
-        images.map((img) => uploadImage(img))
-      );
-
-      const uploadedImages: UploadedImage[] = [];
-      const updatedImages = images.map((img, idx) => {
-        const result = uploadResults[idx];
-        if (result.status === 'fulfilled') {
-          uploadedImages.push(result.value);
-          return result.value;
-        } else {
-          return { ...img, uploading: false, uploadError: result.reason?.message || '上传失败' };
-        }
-      });
-
-      setImages(updatedImages);
-
-      if (uploadedImages.length === 0) {
-        throw new Error('所有图片上传失败');
+      if (failedUploads.length > 0) {
+        console.warn(`${failedUploads.length} 张图片上传失败，将跳过`);
       }
+      console.log(`开始生成，共 ${imageUrls.length} 张图片`);
 
-      const imageUrls = uploadedImages.map((img) => img.storageUrl);
-
-      const apiKey = localStorage.getItem('apimart_api_key') || '';
-      if (!apiKey) {
-        throw new Error('请先在右上角设置中配置 APIMart API Key');
-      }
-
-      // Step 1: Submit all tasks (backend returns immediately with task_ids)
+      // Submit all tasks (backend returns immediately with task_ids)
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -234,12 +262,12 @@ export function useImageGeneration() {
       }
 
       const { tasks, immediateErrors } = await response.json();
-      const total = images.length;
+      const total = uploadedEntries.length;
 
-      // Add immediate errors to results
+      // Add immediate errors to results (map API index to original index)
       const initialResults: GenerationResult[] = immediateErrors.map(
         (err: { index: number; error: string }) => ({
-          index: err.index,
+          index: indexMap[err.index] ?? err.index,
           success: false,
           error: err.error,
         })
@@ -247,16 +275,18 @@ export function useImageGeneration() {
       setResults(initialResults);
       setProgress({ current: immediateErrors.length, total });
 
-      // Step 2: Client-side polling for each task
+      // Client-side polling for each task
       if (tasks.length > 0) {
         const pollPromises = tasks.map(
           (task: { index: number; task_id: string }) =>
-            pollTask(task.task_id, apiKey, (_status, _progress) => {
-              // Optional: update per-task progress in UI
-            }).then((result) => ({ index: task.index, ...result }))
+            pollTask(task.task_id, apiKey, () => {
+            }).then((result) => ({
+              // Map API index back to original images index
+              index: indexMap[task.index] ?? task.index,
+              ...result,
+            }))
         );
 
-        // Process results as they complete
         const settledResults = await Promise.allSettled(pollPromises);
 
         if (!abortRef.current) {
@@ -266,9 +296,10 @@ export function useImageGeneration() {
               newResults.push(settled.value);
             } else {
               const idx = settledResults.indexOf(settled);
-              const taskIndex = tasks[idx]?.index ?? 0;
+              const apiIndex = tasks[idx]?.index ?? 0;
+              const originalIndex = indexMap[apiIndex] ?? apiIndex;
               newResults.push({
-                index: taskIndex,
+                index: originalIndex,
                 success: false,
                 error: settled.reason?.message || '生成失败',
               });
@@ -280,6 +311,7 @@ export function useImageGeneration() {
       }
     } catch (error) {
       console.error('Generation error:', error);
+      throw error;
     } finally {
       setIsGenerating(false);
     }
@@ -378,6 +410,45 @@ export function useImageGeneration() {
     }
   }, [results, images, prompt, resolution, aspectRatio]);
 
+  const retryUpload = useCallback(async (imageId: string) => {
+    const image = images.find((img) => img.id === imageId);
+    if (!image || !image.uploadError) return;
+
+    // Clear error and mark as uploading
+    setImages((prev) =>
+      prev.map((img) =>
+        img.id === imageId
+          ? { ...img, uploading: true, uploadError: undefined }
+          : img
+      )
+    );
+
+    const formData = new FormData();
+    formData.append('file', image.file);
+
+    try {
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '上传失败');
+
+      setImages((prev) =>
+        prev.map((img) =>
+          img.id === imageId
+            ? { ...img, uploading: false, uploaded: true, storageUrl: data.url, uploadError: undefined }
+            : img
+        )
+      );
+    } catch (err) {
+      setImages((prev) =>
+        prev.map((img) =>
+          img.id === imageId
+            ? { ...img, uploading: false, uploaded: false, uploadError: err instanceof Error ? err.message : '上传失败' }
+            : img
+        )
+      );
+    }
+  }, [images]);
+
   return {
     images,
     prompt,
@@ -394,5 +465,6 @@ export function useImageGeneration() {
     clearImages,
     startGeneration,
     retryFailedGeneration,
+    retryUpload,
   };
 }

@@ -3,17 +3,18 @@
 import { useCallback, useRef, useState } from 'react';
 import type { UploadedImage } from '@/hooks/use-image-generation';
 import { Button } from '@/components/ui/button';
-import { Upload, X, Image as ImageIcon, AlertCircle } from 'lucide-react';
+import { Upload, X, Image as ImageIcon, AlertCircle, Loader2, Check, RefreshCw } from 'lucide-react';
 
 interface ImageUploaderProps {
   images: UploadedImage[];
   onAdd: (files: FileList | File[]) => void;
   onRemove: (id: string) => void;
   onClear: () => void;
+  onRetryUpload: (id: string) => void;
   disabled: boolean;
 }
 
-export function ImageUploader({ images, onAdd, onRemove, onClear, disabled }: ImageUploaderProps) {
+export function ImageUploader({ images, onAdd, onRemove, onClear, onRetryUpload, disabled }: ImageUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -52,15 +53,29 @@ export function ImageUploader({ images, onAdd, onRemove, onClear, disabled }: Im
     }
   };
 
-  const uploadCount = images.filter((img) => img.uploadError).length;
+  const uploadedCount = images.filter((img) => img.uploaded && !img.uploading).length;
+  const uploadingCount = images.filter((img) => img.uploading).length;
+  const errorCount = images.filter((img) => img.uploadError).length;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
           <ImageIcon className="h-4 w-4 text-amber-500" />
-          {'\u539f\u59cb\u56fe\u7247'}
+          原始图片
           <span className="text-zinc-500">({images.length})</span>
+          {uploadingCount > 0 && (
+            <span className="text-amber-400 text-xs flex items-center gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {uploadingCount} 张上传中
+            </span>
+          )}
+          {uploadedCount > 0 && (
+            <span className="text-emerald-400 text-xs">✓ {uploadedCount} 张已上传</span>
+          )}
+          {errorCount > 0 && (
+            <span className="text-red-400 text-xs">✗ {errorCount} 张失败</span>
+          )}
         </h2>
         {images.length > 0 && (
           <Button
@@ -70,7 +85,7 @@ export function ImageUploader({ images, onAdd, onRemove, onClear, disabled }: Im
             disabled={disabled}
             className="text-zinc-400 hover:text-zinc-200"
           >
-            {'\u6e05\u7a7a\u5168\u90e8'}
+            清空全部
           </Button>
         )}
       </div>
@@ -102,10 +117,10 @@ export function ImageUploader({ images, onAdd, onRemove, onClear, disabled }: Im
         />
         <Upload className={`mx-auto h-8 w-8 mb-2 ${isDragOver ? 'text-amber-500' : 'text-zinc-500'}`} />
         <p className="text-sm text-zinc-400">
-          {'\u62d6\u62fd\u56fe\u7247\u5230\u8fd9\u91cc\uff0c\u6216'} <span className="text-amber-500">{'\u70b9\u51fb\u6d4f\u89c8'}</span>
+          拖拽图片到这里，或 <span className="text-amber-500">点击浏览</span>
         </p>
         <p className="text-xs text-zinc-600 mt-1">
-          {'\u652f\u6301 JPEG\u3001PNG\u3001WebP\u3001GIF \u683c\u5f0f\uff08\u5355\u5f20\u6700\u5927 10MB\uff09'}
+          支持 JPEG、PNG、WebP、GIF 格式（单张最大 10MB）
         </p>
       </div>
 
@@ -116,23 +131,51 @@ export function ImageUploader({ images, onAdd, onRemove, onClear, disabled }: Im
             {images.map((image) => (
               <div
                 key={image.id}
-                className="group relative aspect-square rounded-md overflow-hidden bg-zinc-900 border border-zinc-800 hover:border-amber-500/50 transition-colors"
+                className={`group relative aspect-square rounded-md overflow-hidden bg-zinc-900 border transition-colors ${
+                  image.uploadError
+                    ? 'border-red-500/50'
+                    : image.uploading
+                    ? 'border-amber-500/50'
+                    : image.uploaded
+                    ? 'border-emerald-500/30'
+                    : 'border-zinc-800 hover:border-amber-500/50'
+                }`}
               >
                 <img
                   src={image.previewUrl}
                   alt={image.file.name}
                   className="h-full w-full object-cover"
                 />
-                {image.uploadError && (
-                  <div className="absolute inset-0 bg-red-950/80 flex items-center justify-center">
-                    <AlertCircle className="h-4 w-4 text-red-400" />
-                  </div>
-                )}
+                {/* Uploading */}
                 {image.uploading && (
-                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                    <div className="h-4 w-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                  <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-1">
+                    <Loader2 className="h-4 w-4 text-amber-500 animate-spin" />
+                    <span className="text-[10px] text-amber-400">上传中</span>
                   </div>
                 )}
+                {/* Upload success */}
+                {image.uploaded && !image.uploading && (
+                  <div className="absolute bottom-0.5 left-0.5 h-4 w-4 rounded-full bg-emerald-600 flex items-center justify-center">
+                    <Check className="h-2.5 w-2.5 text-white" />
+                  </div>
+                )}
+                {/* Upload error */}
+                {image.uploadError && (
+                  <div className="absolute inset-0 bg-red-950/80 flex flex-col items-center justify-center gap-1">
+                    <AlertCircle className="h-4 w-4 text-red-400" />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRetryUpload(image.id);
+                      }}
+                      className="flex items-center gap-0.5 text-[10px] text-red-300 hover:text-red-100 transition-colors"
+                    >
+                      <RefreshCw className="h-2.5 w-2.5" />
+                      重试
+                    </button>
+                  </div>
+                )}
+                {/* Remove button */}
                 {!disabled && (
                   <button
                     onClick={(e) => {
@@ -140,7 +183,7 @@ export function ImageUploader({ images, onAdd, onRemove, onClear, disabled }: Im
                       onRemove(image.id);
                     }}
                     className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-black/70 flex items-center justify-center
-                      opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                    opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
                   >
                     <X className="h-2.5 w-2.5 text-white" />
                   </button>
@@ -149,12 +192,6 @@ export function ImageUploader({ images, onAdd, onRemove, onClear, disabled }: Im
             ))}
           </div>
         </div>
-      )}
-
-      {uploadCount > 0 && (
-        <p className="text-xs text-red-400">
-          {uploadCount} {'\u5f20\u56fe\u7247\u4e0a\u4f20\u5931\u8d25'}
-        </p>
       )}
     </div>
   );

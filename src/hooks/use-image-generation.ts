@@ -121,6 +121,7 @@ export function useImageGeneration() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<GenerationProgress | null>(null);
   const [results, setResults] = useState<GenerationResult[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const abortRef = useRef(false);
 
   const uploadSingleImage = useCallback(async (imageId: string, file: File) => {
@@ -238,6 +239,7 @@ export function useImageGeneration() {
     setIsGenerating(true);
     setResults([]);
     setProgress(null);
+    setError(null);
 
     try {
       if (failedUploads.length > 0) {
@@ -265,8 +267,14 @@ export function useImageGeneration() {
       });
 
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || '生成失败');
+        let errMsg = '生成失败';
+        try {
+          const errData = await response.json();
+          errMsg = errData.error || errMsg;
+        } catch {
+          errMsg = `请求失败 (${response.status})`;
+        }
+        throw new Error(errMsg);
       }
 
       const { results: apiResults, errors: apiErrors } = await response.json();
@@ -301,7 +309,8 @@ export function useImageGeneration() {
       setProgress({ current: total, total });
     } catch (error) {
       console.error('Generation error:', error);
-      throw error;
+      const errMsg = error instanceof Error ? error.message : '生成失败，请重试';
+      setError(errMsg);
     } finally {
       setIsGenerating(false);
     }
@@ -452,6 +461,8 @@ export function useImageGeneration() {
     isGenerating,
     progress,
     results,
+    error,
+    clearError: () => setError(null),
     addImages,
     removeImage,
     clearImages,

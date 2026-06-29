@@ -22,6 +22,8 @@ export default function Home() {
     isGenerating,
     progress,
     results,
+    error,
+    clearError,
     addImages,
     removeImage,
     clearImages,
@@ -129,6 +131,27 @@ export default function Home() {
               disabled={isGenerating}
             />
 
+            {/* Error display */}
+            {error && (
+              <div className="rounded-lg border border-red-800/50 bg-red-950/30 p-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <div className="h-5 w-5 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-red-500 text-xs font-bold">!</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-red-400 font-medium">生成失败</p>
+                    <p className="text-xs text-red-400/70 mt-1 break-words">{error}</p>
+                  </div>
+                  <button
+                    onClick={clearError}
+                    className="text-red-400/50 hover:text-red-400 transition-colors flex-shrink-0"
+                  >
+                    <span className="text-lg leading-none">&times;</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Results */}
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-5">
               <ResultGallery
@@ -164,7 +187,7 @@ export default function Home() {
                   <li>{'- \u5c3d\u91cf\u5177\u4f53\u5730\u63cf\u8ff0\u98ce\u683c\uff08\u5982\u6c34\u5f69\u3001\u6cb9\u753b\u3001\u52a8\u6f2b\u98ce\u683c\uff09'}</li>
                   <li>{'- \u8bf4\u660e\u9700\u8981\u4fdd\u7559\u539f\u56fe\u7684\u54ea\u4e9b\u7279\u5f81'}</li>
                   <li>{'- \u63cf\u8ff0\u5149\u7ebf\u3001\u6c1b\u56f4\u548c\u60c5\u7eea'}</li>
-                  <li>{'- \u56fe\u7247\u6309\u987a\u5e8f\u5904\u7406\uff0c\u6bcf\u6b21\u5e76\u884c 2 \u5f20'}</li>
+                  <li>{'- \u56fe\u7247\u6309\u987a\u5e8f\u5904\u7406\uff0c\u6bcf\u6b21\u5e76\u884c 5 \u5f20'}</li>
                 </ul>
               </div>
             </div>

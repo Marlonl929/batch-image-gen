@@ -301,6 +301,7 @@ export function useImageGeneration() {
 
             try {
               const event = JSON.parse(jsonStr);
+              console.log('[SSE event]', event.type, event.type === 'result' ? `index=${event.index} url=${event.imageUrl?.substring(0, 60)}...` : '');
 
               if (event.type === 'progress') {
                 setProgress({ current: event.current, total: event.total });

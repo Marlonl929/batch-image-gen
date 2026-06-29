@@ -316,10 +316,11 @@ export async function POST(request: NextRequest) {
           for (const r of batchResults) {
             if (r.status === 'completed') {
               results.push(r as typeof results[number]);
+              send({ type: 'result', index: r.index, imageUrl: r.imageUrl, revisedPrompt: r.revisedPrompt });
             } else {
               errors.push(r as typeof errors[number]);
+              send({ type: 'error', index: r.index, error: r.error });
             }
-            send(r);
           }
         }
 

@@ -20,9 +20,11 @@ export function ResultGallery({ images, results, progress, isGenerating, onRetry
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [isDownloading, setIsDownloading] = useState(false);
-  const hasResults = results.length > 0;
-  const successResults = results.filter((r) => r.success);
-  const failedResults = results.filter((r) => !r.success);
+  // 按原始图片索引排序，确保结果与原图一一对应
+  const sortedResults = [...results].sort((a, b) => a.index - b.index);
+  const hasResults = sortedResults.length > 0;
+  const successResults = sortedResults.filter((r) => r.success);
+  const failedResults = sortedResults.filter((r) => !r.success);
 
   const downloadImage = async (url: string, filename: string) => {
     try {
@@ -96,7 +98,7 @@ export function ResultGallery({ images, results, progress, isGenerating, onRetry
           {'\u751f\u6210\u7ed3\u679c'}
           {hasResults && (
             <span className="text-zinc-500">
-              ({successResults.length}/{results.length})
+              ({successResults.length}/{sortedResults.length})
             </span>
           )}
         </h2>
@@ -158,7 +160,7 @@ export function ResultGallery({ images, results, progress, isGenerating, onRetry
 
       {/* Results grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {results.map((result) => {
+        {sortedResults.map((result) => {
           const sourceImage = images[result.index];
           return (
             <div

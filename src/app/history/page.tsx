@@ -31,6 +31,7 @@ function HistoryCard({ record, onDelete }: { record: HistoryRecord; onDelete: (i
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const successResults = record.results.filter((r) => r.success && r.imageUrl);
+  const sortedResults = [...record.results].sort((a, b) => a.index - b.index);
 
   const downloadImage = async (url: string, filename: string) => {
     try {
@@ -137,7 +138,7 @@ function HistoryCard({ record, onDelete }: { record: HistoryRecord; onDelete: (i
         {/* Results grid */}
         <div className="p-4">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {record.results.map((result, idx) => (
+            {sortedResults.map((result, idx) => (
               <div
                 key={idx}
                 className="rounded-lg overflow-hidden bg-zinc-900/50 border border-zinc-800/50"

@@ -171,7 +171,7 @@ export function ApiKeySettings() {
           {/* Help text */}
           <p className="text-xs text-zinc-600">
             API 地址和密钥仅存储在浏览器 localStorage 中，每次请求时发送到后端用于调用图生图服务。
-            接口需兼容 APIMart 的请求/响应格式。
+            默认使用 ncp.hayoz.top 异步生图接口。
           </p>
         </div>
       </DialogContent>

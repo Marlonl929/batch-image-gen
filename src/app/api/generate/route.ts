@@ -118,8 +118,10 @@ async function submitAsyncTask(
   }
 
   const data = await resp.json();
-  if (!data.id) throw new Error(`提交任务失败: 未返回任务 ID`);
-  return data.id;
+  // 兼容 { id: "..." } 和 { code: 0, data: { id: "..." } } 两种格式
+  const taskId = data.id || data.data?.id;
+  if (!taskId) throw new Error(`提交任务失败: 未返回任务 ID, 响应: ${JSON.stringify(data).substring(0, 200)}`);
+  return taskId;
 }
 
 async function pollTaskResult(
@@ -138,11 +140,21 @@ async function pollTaskResult(
       throw new Error(`查询任务失败 (${resp.status}): ${errText.slice(0, 200)}`);
     }
 
-    const data = await resp.json();
+    const raw = await resp.json();
+    // 兼容两种格式：
+    // 扁平: { id, status, result: { data: [{url}] } }
+    // 嵌套: { code: 0, data: { id, status, result: { data: [{url}] } } }
+    const data = raw.data?.status ? raw.data : raw;
 
-    if (data.status === 'succeeded') {
-      const imageUrl = data.result?.data?.[0]?.url || data.result?.data?.[0]?.b64_json;
-      if (!imageUrl) throw new Error('任务成功但未返回图片');
+    if (i === 0 || i % 6 === 0) {
+      console.log(`[manxiaobai] 轮询 ${taskId} #${i}: status=${data.status}`);
+    }
+
+    if (data.status === 'succeeded' || data.status === 'completed') {
+      console.log(`[manxiaobai] 任务 ${taskId} 完成, status=${data.status}`);
+      const resultData = data.result?.data || data.output?.data;
+      const imageUrl = resultData?.[0]?.url || resultData?.[0]?.b64_json;
+      if (!imageUrl) throw new Error(`任务成功但未返回图片, result: ${JSON.stringify(data.result || data.output).substring(0, 200)}`);
 
       // 检查是否为无效的内网地址
       if (
@@ -155,12 +167,12 @@ async function pollTaskResult(
 
       return {
         url: imageUrl,
-        revisedPrompt: data.result?.data?.[0]?.revised_prompt,
+        revisedPrompt: resultData?.[0]?.revised_prompt,
       };
     }
 
     if (data.status === 'failed') {
-      throw new Error(`任务失败: ${data.error?.message || '未知错误'}`);
+      throw new Error(`任务失败: ${data.error?.message || data.message || '未知错误'}`);
     }
 
     // running / queued / processing → 等 5 秒再查

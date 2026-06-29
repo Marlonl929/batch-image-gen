@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
 export interface UploadedImage {
   id: string;
@@ -50,7 +50,6 @@ export const ASPECT_RATIOS: Record<string, { w: number; h: number; label: string
 };
 
 export function calculateSize(resolution: string, aspectRatio: string): string {
-  // "auto" uses the resolution preset directly, let API decide
   if (aspectRatio === 'auto') {
     return resolution === '4K' ? '4K' : '2K';
   }
@@ -62,13 +61,53 @@ export function calculateSize(resolution: string, aspectRatio: string): string {
   let w = res.base;
   let h = Math.round(res.base * ratio.h / ratio.w);
 
-  // SDK range: 2560x1440 ~ 4096x4096
   if (w < 2560) w = 2560;
   if (w > 4096) w = 4096;
   if (h < 1440) h = 1440;
   if (h > 4096) h = 4096;
 
   return `${w}x${h}`;
+}
+
+// Poll a single task from the client side
+async function pollTask(
+  taskId: string,
+  apiKey: string,
+  onUpdate: (status: string, progress: number) => void
+): Promise<{ success: boolean; imageUrl?: string; error?: string }> {
+  const maxAttempts = 60; // Max 5 minutes (60 * 5s)
+  let attempts = 0;
+
+  while (attempts < maxAttempts) {
+    const response = await fetch(
+      `/api/task-status/${taskId}?apiKey=${encodeURIComponent(apiKey)}`
+    );
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || '查询任务失败');
+    }
+
+    const data = await response.json();
+    onUpdate(data.status, data.progress || 0);
+
+    if (data.status === 'completed') {
+      if (data.imageUrl) {
+        return { success: true, imageUrl: data.imageUrl };
+      }
+      return { success: false, error: data.error || '未获取到生成结果' };
+    }
+
+    if (data.status === 'failed') {
+      return { success: false, error: data.error || '生成失败' };
+    }
+
+    // Wait 5 seconds before next poll
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    attempts++;
+  }
+
+  return { success: false, error: '任务超时' };
 }
 
 export function useImageGeneration() {
@@ -79,6 +118,7 @@ export function useImageGeneration() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<GenerationProgress | null>(null);
   const [results, setResults] = useState<GenerationResult[]>([]);
+  const abortRef = useRef(false);
 
   const addImages = useCallback((files: FileList | File[]) => {
     const newImages: UploadedImage[] = Array.from(files)
@@ -123,7 +163,7 @@ export function useImageGeneration() {
 
     if (!response.ok) {
       const data = await response.json();
-      throw new Error(data.error || '\u4e0a\u4f20\u5931\u8d25');
+      throw new Error(data.error || '上传失败');
     }
 
     const data = await response.json();
@@ -138,6 +178,7 @@ export function useImageGeneration() {
   const startGeneration = useCallback(async () => {
     if (images.length === 0 || !prompt.trim()) return;
 
+    abortRef.current = false;
     setIsGenerating(true);
     setResults([]);
     setProgress(null);
@@ -157,24 +198,24 @@ export function useImageGeneration() {
           uploadedImages.push(result.value);
           return result.value;
         } else {
-          return { ...img, uploading: false, uploadError: result.reason?.message || '\u4e0a\u4f20\u5931\u8d25' };
+          return { ...img, uploading: false, uploadError: result.reason?.message || '上传失败' };
         }
       });
 
       setImages(updatedImages);
 
       if (uploadedImages.length === 0) {
-        throw new Error('\u6240\u6709\u56fe\u7247\u4e0a\u4f20\u5931\u8d25');
+        throw new Error('所有图片上传失败');
       }
 
       const imageUrls = uploadedImages.map((img) => img.storageUrl);
 
-      // Start SSE generation - pass size (aspect ratio) and resolution separately
       const apiKey = localStorage.getItem('apimart_api_key') || '';
       if (!apiKey) {
         throw new Error('请先在右上角设置中配置 APIMart API Key');
       }
 
+      // Step 1: Submit all tasks (backend returns immediately with task_ids)
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -188,34 +229,53 @@ export function useImageGeneration() {
       });
 
       if (!response.ok) {
-        throw new Error('\u542f\u52a8\u751f\u6210\u5931\u8d25');
+        const errData = await response.json();
+        throw new Error(errData.error || '启动生成失败');
       }
 
-      const reader = response.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+      const { tasks, immediateErrors } = await response.json();
+      const total = images.length;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      // Add immediate errors to results
+      const initialResults: GenerationResult[] = immediateErrors.map(
+        (err: { index: number; error: string }) => ({
+          index: err.index,
+          success: false,
+          error: err.error,
+        })
+      );
+      setResults(initialResults);
+      setProgress({ current: immediateErrors.length, total });
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+      // Step 2: Client-side polling for each task
+      if (tasks.length > 0) {
+        const pollPromises = tasks.map(
+          (task: { index: number; task_id: string }) =>
+            pollTask(task.task_id, apiKey, (_status, _progress) => {
+              // Optional: update per-task progress in UI
+            }).then((result) => ({ index: task.index, ...result }))
+        );
 
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
+        // Process results as they complete
+        const settledResults = await Promise.allSettled(pollPromises);
 
-            if (data.type === 'progress') {
-              setProgress({ current: data.current, total: data.total });
-            } else if (data.type === 'result') {
-              setResults((prev) => [...prev, data]);
+        if (!abortRef.current) {
+          const newResults: GenerationResult[] = [];
+          for (const settled of settledResults) {
+            if (settled.status === 'fulfilled') {
+              newResults.push(settled.value);
+            } else {
+              const idx = settledResults.indexOf(settled);
+              const taskIndex = tasks[idx]?.index ?? 0;
+              newResults.push({
+                index: taskIndex,
+                success: false,
+                error: settled.reason?.message || '生成失败',
+              });
             }
-          } catch {
-            // Skip malformed JSON
           }
+          setResults((prev) => [...prev, ...newResults]);
+          setProgress({ current: total, total });
         }
       }
     } catch (error) {
@@ -229,11 +289,11 @@ export function useImageGeneration() {
     const failedResults = results.filter((r) => !r.success);
     if (failedResults.length === 0) return;
 
+    abortRef.current = false;
     setIsGenerating(true);
     setProgress(null);
 
     try {
-      // Get the images that failed
       const failedIndices = failedResults.map((r) => r.index);
       const failedImages = failedIndices.map((idx) => images[idx]).filter((img) => img?.storageUrl);
 
@@ -248,6 +308,7 @@ export function useImageGeneration() {
         throw new Error('请先在右上角设置中配置 APIMart API Key');
       }
 
+      // Submit retry tasks
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -264,39 +325,50 @@ export function useImageGeneration() {
         throw new Error('启动生成失败');
       }
 
-      const reader = response.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+      const { tasks, immediateErrors } = await response.json();
+      const total = failedImages.length;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      // Handle immediate errors
+      for (const err of immediateErrors) {
+        const originalIndex = failedIndices[err.index];
+        setResults((prev) => {
+          const newResults = prev.filter((r) => r.index !== originalIndex);
+          return [...newResults, { index: originalIndex, success: false, error: err.error }];
+        });
+      }
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+      // Client-side polling for retry tasks
+      if (tasks.length > 0) {
+        const pollPromises = tasks.map(
+          (task: { index: number; task_id: string }) =>
+            pollTask(task.task_id, apiKey, () => {}).then((result) => ({
+              index: task.index,
+              ...result,
+            }))
+        );
 
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
+        const settledResults = await Promise.allSettled(pollPromises);
 
-            if (data.type === 'progress') {
-              setProgress({ current: data.current, total: data.total });
-            } else if (data.type === 'result') {
-              // Map the result back to the original index
-              const originalIndex = failedIndices[data.index];
-              const mappedResult = { ...data, index: originalIndex };
+        if (!abortRef.current) {
+          for (let i = 0; i < settledResults.length; i++) {
+            const settled = settledResults[i];
+            const originalIndex = failedIndices[tasks[i]?.index ?? 0];
 
+            if (settled.status === 'fulfilled') {
+              const mappedResult = { ...settled.value, index: originalIndex };
               setResults((prev) => {
-                // Replace the failed result with the new one
                 const newResults = prev.filter((r) => r.index !== originalIndex);
                 return [...newResults, mappedResult];
               });
+            } else {
+              const errorMessage = settled.reason?.message || '生成失败';
+              setResults((prev) => {
+                const newResults = prev.filter((r) => r.index !== originalIndex);
+                return [...newResults, { index: originalIndex, success: false, error: errorMessage }];
+              });
             }
-          } catch {
-            // Skip malformed JSON
           }
+          setProgress({ current: total, total });
         }
       }
     } catch (error) {

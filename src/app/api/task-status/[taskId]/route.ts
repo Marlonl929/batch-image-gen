@@ -1,11 +1,16 @@
 import { NextRequest } from 'next/server';
 
-const DEFAULT_API_URL = 'https://api.apimart.ai';
+const DEFAULT_API_URL = 'https://new.hayoz.top';
 
 /**
  * GET /api/task-status/[taskId]?apiKey=xxx&apiUrl=xxx
- * Returns the current status of a single task.
+ * Returns the current status of a single async image job.
  * Client polls this endpoint until status is 'completed' or 'failed'.
+ * 
+ * New API response format:
+ * - queued / running → still processing
+ * - succeeded → done, result in data[0].url or result.data[0].url
+ * - failed → error in error field
  */
 export async function GET(
   request: NextRequest,
@@ -26,7 +31,7 @@ export async function GET(
       );
     }
 
-    const response = await fetch(`${baseUrl}/v1/tasks/${taskId}`, {
+    const response = await fetch(`${baseUrl}/v1/async/images/generations/${taskId}`, {
       headers: {
         'Authorization': `Bearer ${apiKey}`,
       },
@@ -34,22 +39,22 @@ export async function GET(
 
     const data = await response.json();
 
-    if (data.error) {
+    if (data.error && !data.status) {
       return new Response(
-        JSON.stringify({ error: data.error.message || '查询任务失败' }),
+        JSON.stringify({ error: data.error.message || data.error || '查询任务失败' }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    const taskData = data.data;
-    const status = taskData?.status; // 'pending' | 'running' | 'completed' | 'failed'
+    const status = data.status; // 'queued' | 'running' | 'succeeded' | 'failed'
 
-    if (status === 'completed') {
-      const imageUrl = taskData?.result?.images?.[0]?.url?.[0];
+    if (status === 'succeeded') {
+      // Extract image URL from data or result
+      const imageUrl = data.data?.[0]?.url || data.result?.data?.[0]?.url || null;
       return new Response(
         JSON.stringify({
           status: 'completed',
-          progress: taskData?.progress || 100,
+          progress: 100,
           imageUrl: imageUrl || null,
           error: imageUrl ? null : '未获取到生成结果',
         }),
@@ -61,18 +66,19 @@ export async function GET(
       return new Response(
         JSON.stringify({
           status: 'failed',
-          progress: taskData?.progress || 0,
-          error: taskData?.error?.message || '生成失败',
+          progress: 0,
+          error: data.error || '生成失败',
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    // Still processing
+    // Still processing (queued or running)
+    const progress = status === 'running' ? 50 : 10;
     return new Response(
       JSON.stringify({
-        status: status || 'pending',
-        progress: taskData?.progress || 0,
+        status: status || 'queued',
+        progress,
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );

@@ -7,10 +7,10 @@
 - Next.js 16 (App Router) + React 19 + TypeScript 5
 - Tailwind CSS 4 + shadcn/ui
 - coze-coding-dev-sdk (S3Storage 对象存储)
-- APIMart GPT-Image-2 API (图生图，异步任务模式)
+- ncp.hayoz.top GPT-Image-2 API (图生图，异步任务模式)
 
 ## 环境变量
-- 无外部 API 密钥环境变量，用户在前端设置页面输入 APIMart API Key，保存在浏览器 localStorage 中
+- 无外部 API 密钥环境变量，用户在前端设置页面输入 API Key，保存在浏览器 localStorage 中
 
 ## 目录结构
 ```
@@ -50,9 +50,10 @@ src/
 - SDK 仅在后端使用（API Routes），不暴露在前端代码中
 - 图片上传使用 S3Storage，必须用 generatePresignedUrl 获取访问 URL
 - API Key 由用户在前端设置页面输入，保存在浏览器 localStorage，请求时传给后端
-- 图生图使用 APIMart GPT-Image-2 API（异步模式）：
-  - 提交任务：POST /v1/images/generations → 返回 task_id
-  - 轮询结果：GET /v1/tasks/{task_id} → 返回图片 URL
-  - 参数：size（宽高比）、resolution（1k/2k/4k）、image_urls（参考图 URL 数组）
+- 图生图使用 ncp.hayoz.top GPT-Image-2 API（异步模式）：
+  - 提交任务：POST /v1/async/images/generations → 返回 job_id
+  - 轮询结果：GET /v1/async/images/generations/{job_id} → 返回图片 URL
+  - 参数：model（gpt-image-2）、prompt、size（如1024x1024）、image_urls（参考图 URL 数组）
+  - 默认 API 地址：https://new.hayoz.top
 - 下载跨域图片必须用 fetch + blob，不能用 <a download>
 - API Key 通过前端 localStorage 管理，不依赖服务端环境变量

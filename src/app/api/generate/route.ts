@@ -1,17 +1,16 @@
 import { NextRequest } from 'next/server';
 
-const DEFAULT_API_URL = 'https://api.apimart.ai';
+const DEFAULT_API_URL = 'https://new.hayoz.top';
 
-// Submit a single image generation task
+// Submit a single async image generation task
 async function submitTask(params: {
   prompt: string;
   imageUrls: string[];
   size: string;
-  resolution: string;
   apiKey: string;
   apiUrl: string;
-}): Promise<{ task_id: string; status: string }> {
-  const response = await fetch(`${params.apiUrl}/v1/images/generations`, {
+}): Promise<{ job_id: string; status: string }> {
+  const response = await fetch(`${params.apiUrl}/v1/async/images/generations`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${params.apiKey}`,
@@ -22,7 +21,7 @@ async function submitTask(params: {
       prompt: params.prompt,
       n: 1,
       size: params.size,
-      resolution: params.resolution,
+      response_format: 'url',
       image_urls: params.imageUrls,
     }),
   });
@@ -30,29 +29,31 @@ async function submitTask(params: {
   const data = await response.json();
 
   if (data.error) {
-    throw new Error(data.error.message || '提交任务失败');
+    throw new Error(data.error.message || data.error || '提交任务失败');
   }
 
-  if (!data.data?.[0]?.task_id) {
+  // New API returns job_id directly
+  const jobId = data.job_id || data.id;
+  if (!jobId) {
     throw new Error('未获取到任务ID');
   }
 
   return {
-    task_id: data.data[0].task_id,
-    status: data.data[0].status,
+    job_id: jobId,
+    status: data.status || 'queued',
   };
 }
 
 /**
  * POST /api/generate
- * Only submits all tasks and returns their task_ids immediately.
+ * Only submits all tasks and returns their job_ids immediately.
  * No polling on server side — client will poll /api/task-status/[taskId] instead.
- * This avoids Vercel serverless function timeout.
+ * This avoids Vercel/Render serverless function timeout.
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { imageUrls, prompt, size, resolution, apiKey, apiUrl } = body;
+    const { imageUrls, prompt, size, apiKey, apiUrl } = body;
 
     if (!apiKey || typeof apiKey !== 'string') {
       return new Response(
@@ -77,28 +78,57 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Calculate actual pixel size from aspect ratio
+    // The new API expects size like "1024x1024"
+    let pixelSize = '1024x1024';
+    if (size && size !== 'auto') {
+      // size is already in "WxH" format from frontend calculateSize, or it's an aspect ratio
+      if (size.includes('x')) {
+        pixelSize = size;
+      } else {
+        // Map common aspect ratios to pixel sizes
+        const ratioMap: Record<string, string> = {
+          '1:1': '1024x1024',
+          '16:9': '1536x864',
+          '9:16': '864x1536',
+          '4:3': '1364x1024',
+          '3:4': '1024x1364',
+          '3:2': '1536x1024',
+          '2:3': '1024x1536',
+          '5:4': '1280x1024',
+          '4:5': '1024x1280',
+          '21:9': '1536x658',
+          '9:21': '658x1536',
+          '1:3': '512x1536',
+          '3:1': '1536x512',
+          '2:1': '1536x768',
+          '1:2': '768x1536',
+        };
+        pixelSize = ratioMap[size] || '1024x1024';
+      }
+    }
+
     // Submit all tasks in parallel
     const taskSubmissions = await Promise.allSettled(
       imageUrls.map((imageUrl: string, i: number) =>
         submitTask({
           prompt: prompt.trim(),
           imageUrls: [imageUrl],
-          size: size || '1:1',
-          resolution: resolution || '2k',
+          size: pixelSize,
           apiKey,
           apiUrl: baseUrl,
         }).then(result => ({ index: i, ...result }))
       )
     );
 
-    // Build response with task_ids and any immediate failures
+    // Build response with job_ids and any immediate failures
     const tasks: { index: number; task_id: string }[] = [];
     const immediateErrors: { index: number; error: string }[] = [];
 
     for (let i = 0; i < taskSubmissions.length; i++) {
       const submission = taskSubmissions[i];
       if (submission.status === 'fulfilled') {
-        tasks.push({ index: submission.value.index, task_id: submission.value.task_id });
+        tasks.push({ index: submission.value.index, task_id: submission.value.job_id });
       } else {
         const errorMessage = submission.reason instanceof Error
           ? submission.reason.message

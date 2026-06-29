@@ -232,7 +232,7 @@ export function useImageGeneration() {
     if (!apiKey) {
       throw new Error('请先在右上角设置中配置 API Key');
     }
-    const apiUrl = localStorage.getItem('apimart_api_url') || 'https://new.hayoz.top';
+    const apiUrl = localStorage.getItem('apimart_api_url') || 'https://ncp.hayoz.top';
 
     abortRef.current = false;
     setIsGenerating(true);
@@ -346,7 +346,7 @@ export function useImageGeneration() {
       if (!apiKey) {
         throw new Error('请先在右上角设置中配置 API Key');
       }
-      const apiUrl = localStorage.getItem('apimart_api_url') || 'https://new.hayoz.top';
+      const apiUrl = localStorage.getItem('apimart_api_url') || 'https://ncp.hayoz.top';
 
       // Submit retry tasks
       const response = await fetch('/api/generate', {

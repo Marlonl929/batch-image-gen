@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 
-const DEFAULT_API_URL = 'https://new.hayoz.top';
+const DEFAULT_API_URL = 'https://ncp.hayoz.top';
 
 /**
  * GET /api/task-status/[taskId]?apiKey=xxx&apiUrl=xxx

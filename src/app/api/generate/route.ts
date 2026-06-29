@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 
-const DEFAULT_API_URL = 'https://new.hayoz.top';
+const DEFAULT_API_URL = 'https://ncp.hayoz.top';
 
 // Submit a single async image generation task
 async function submitTask(params: {

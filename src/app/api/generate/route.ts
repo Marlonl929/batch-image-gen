@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const DEFAULT_API_URL = 'https://ncp.hayoz.top/v1';
-const CONCURRENCY = 2; // 每次并发 2 张，避免触发 API 并发限制
+const CONCURRENCY = 100; // 并发数（API 已提升至 100）
 const MAX_RETRIES = 3; // 429 错误最多重试 3 次
 const RETRY_DELAY = 2000; // 重试间隔 2 秒
 
@@ -154,11 +154,6 @@ async function processInBatches(
     );
 
     allResults.push(...batchResults);
-
-    // 批次间间隔 1 秒，避免连续请求触发限制
-    if (i + CONCURRENCY < items.length) {
-      await sleep(1000);
-    }
   }
 
   return allResults;

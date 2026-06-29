@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 
-const APIMART_API_URL = 'https://api.apimart.ai';
+const DEFAULT_API_URL = 'https://api.apimart.ai';
 
 // Submit a single image generation task
 async function submitTask(params: {
@@ -9,8 +9,9 @@ async function submitTask(params: {
   size: string;
   resolution: string;
   apiKey: string;
+  apiUrl: string;
 }): Promise<{ task_id: string; status: string }> {
-  const response = await fetch(`${APIMART_API_URL}/v1/images/generations`, {
+  const response = await fetch(`${params.apiUrl}/v1/images/generations`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${params.apiKey}`,
@@ -51,14 +52,16 @@ async function submitTask(params: {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { imageUrls, prompt, size, resolution, apiKey } = body;
+    const { imageUrls, prompt, size, resolution, apiKey, apiUrl } = body;
 
     if (!apiKey || typeof apiKey !== 'string') {
       return new Response(
-        JSON.stringify({ error: '请先在设置中配置 APIMart API Key' }),
+        JSON.stringify({ error: '请先在设置中配置 API Key' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
+
+    const baseUrl = (apiUrl && typeof apiUrl === 'string') ? apiUrl.replace(/\/+$/, '') : DEFAULT_API_URL;
 
     if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length === 0) {
       return new Response(
@@ -83,6 +86,7 @@ export async function POST(request: NextRequest) {
           size: size || '1:1',
           resolution: resolution || '2k',
           apiKey,
+          apiUrl: baseUrl,
         }).then(result => ({ index: i, ...result }))
       )
     );

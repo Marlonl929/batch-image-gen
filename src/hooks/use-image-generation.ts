@@ -74,6 +74,7 @@ export function calculateSize(resolution: string, aspectRatio: string): string {
 async function pollTask(
   taskId: string,
   apiKey: string,
+  apiUrl: string,
   onUpdate: (status: string, progress: number) => void
 ): Promise<{ success: boolean; imageUrl?: string; error?: string }> {
   const maxAttempts = 60; // Max 5 minutes (60 * 5s)
@@ -81,7 +82,7 @@ async function pollTask(
 
   while (attempts < maxAttempts) {
     const response = await fetch(
-      `/api/task-status/${taskId}?apiKey=${encodeURIComponent(apiKey)}`
+      `/api/task-status/${taskId}?apiKey=${encodeURIComponent(apiKey)}&apiUrl=${encodeURIComponent(apiUrl)}`
     );
 
     if (!response.ok) {
@@ -225,8 +226,9 @@ export function useImageGeneration() {
 
     const apiKey = localStorage.getItem('apimart_api_key') || '';
     if (!apiKey) {
-      throw new Error('请先在右上角设置中配置 APIMart API Key');
+      throw new Error('请先在右上角设置中配置 API Key');
     }
+    const apiUrl = localStorage.getItem('apimart_api_url') || 'https://api.apimart.ai';
 
     abortRef.current = false;
     setIsGenerating(true);
@@ -253,6 +255,7 @@ export function useImageGeneration() {
           size: aspectRatio,
           resolution: resolution.toLowerCase(),
           apiKey,
+          apiUrl,
         }),
       });
 
@@ -279,7 +282,7 @@ export function useImageGeneration() {
       if (tasks.length > 0) {
         const pollPromises = tasks.map(
           (task: { index: number; task_id: string }) =>
-            pollTask(task.task_id, apiKey, () => {
+            pollTask(task.task_id, apiKey, apiUrl, () => {
             }).then((result) => ({
               // Map API index back to original images index
               index: indexMap[task.index] ?? task.index,
@@ -337,8 +340,9 @@ export function useImageGeneration() {
 
       const apiKey = localStorage.getItem('apimart_api_key') || '';
       if (!apiKey) {
-        throw new Error('请先在右上角设置中配置 APIMart API Key');
+        throw new Error('请先在右上角设置中配置 API Key');
       }
+      const apiUrl = localStorage.getItem('apimart_api_url') || 'https://api.apimart.ai';
 
       // Submit retry tasks
       const response = await fetch('/api/generate', {
@@ -350,6 +354,7 @@ export function useImageGeneration() {
           size: aspectRatio,
           resolution: resolution.toLowerCase(),
           apiKey,
+          apiUrl,
         }),
       });
 
@@ -373,7 +378,7 @@ export function useImageGeneration() {
       if (tasks.length > 0) {
         const pollPromises = tasks.map(
           (task: { index: number; task_id: string }) =>
-            pollTask(task.task_id, apiKey, () => {}).then((result) => ({
+            pollTask(task.task_id, apiKey, apiUrl, () => {}).then((result) => ({
               index: task.index,
               ...result,
             }))

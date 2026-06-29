@@ -1,9 +1,9 @@
 import { NextRequest } from 'next/server';
 
-const APIMART_API_URL = 'https://api.apimart.ai';
+const DEFAULT_API_URL = 'https://api.apimart.ai';
 
 /**
- * GET /api/task-status/[taskId]?apiKey=xxx
+ * GET /api/task-status/[taskId]?apiKey=xxx&apiUrl=xxx
  * Returns the current status of a single task.
  * Client polls this endpoint until status is 'completed' or 'failed'.
  */
@@ -14,6 +14,10 @@ export async function GET(
   try {
     const { taskId } = await params;
     const apiKey = request.nextUrl.searchParams.get('apiKey');
+    const apiUrlParam = request.nextUrl.searchParams.get('apiUrl');
+    const baseUrl = (apiUrlParam && typeof apiUrlParam === 'string')
+      ? apiUrlParam.replace(/\/+$/, '')
+      : DEFAULT_API_URL;
 
     if (!apiKey) {
       return new Response(
@@ -22,7 +26,7 @@ export async function GET(
       );
     }
 
-    const response = await fetch(`${APIMART_API_URL}/v1/tasks/${taskId}`, {
+    const response = await fetch(`${baseUrl}/v1/tasks/${taskId}`, {
       headers: {
         'Authorization': `Bearer ${apiKey}`,
       },

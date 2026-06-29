@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Settings, Key, Check, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { Settings, Key, Check, AlertCircle, Eye, EyeOff, Globe } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -11,32 +11,47 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 
-const STORAGE_KEY = 'apimart_api_key';
+const STORAGE_KEY_API_KEY = 'apimart_api_key';
+const STORAGE_KEY_API_URL = 'apimart_api_url';
+const DEFAULT_API_URL = 'https://api.apimart.ai';
 
 export function ApiKeySettings() {
   const [open, setOpen] = useState(false);
   const [apiKey, setApiKey] = useState('');
+  const [apiUrl, setApiUrl] = useState(DEFAULT_API_URL);
   const [savedKey, setSavedKey] = useState('');
+  const [savedUrl, setSavedUrl] = useState(DEFAULT_API_URL);
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    const key = localStorage.getItem(STORAGE_KEY) || '';
+    const key = localStorage.getItem(STORAGE_KEY_API_KEY) || '';
+    const url = localStorage.getItem(STORAGE_KEY_API_URL) || DEFAULT_API_URL;
     setSavedKey(key);
+    setSavedUrl(url);
+    setApiUrl(url);
   }, [open]);
 
   const handleSave = () => {
-    const trimmed = apiKey.trim();
-    localStorage.setItem(STORAGE_KEY, trimmed);
-    setSavedKey(trimmed);
+    const trimmedKey = apiKey.trim();
+    const trimmedUrl = apiUrl.trim().replace(/\/+$/, ''); // Remove trailing slashes
+    if (trimmedKey) {
+      localStorage.setItem(STORAGE_KEY_API_KEY, trimmedKey);
+      setSavedKey(trimmedKey);
+    }
+    localStorage.setItem(STORAGE_KEY_API_URL, trimmedUrl || DEFAULT_API_URL);
+    setSavedUrl(trimmedUrl || DEFAULT_API_URL);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
   const handleClear = () => {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_KEY_API_KEY);
+    localStorage.removeItem(STORAGE_KEY_API_URL);
     setApiKey('');
     setSavedKey('');
+    setApiUrl(DEFAULT_API_URL);
+    setSavedUrl(DEFAULT_API_URL);
   };
 
   const isConfigured = savedKey.length > 0;
@@ -57,11 +72,11 @@ export function ApiKeySettings() {
       <DialogContent className="bg-zinc-900 border-zinc-800 sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-zinc-100">
-            <Key className="h-4 w-4 text-amber-500" />
-            API 密钥设置
+            <Settings className="h-4 w-4 text-amber-500" />
+            API 设置
           </DialogTitle>
           <DialogDescription className="text-zinc-500">
-            输入你的 APIMart API Key，保存在浏览器本地，不会上传到服务器。
+            配置 API 地址和密钥，保存在浏览器本地，不会上传到服务器。
           </DialogDescription>
         </DialogHeader>
 
@@ -75,7 +90,7 @@ export function ApiKeySettings() {
             {isConfigured ? (
               <>
                 <Check className="h-3.5 w-3.5" />
-                <span>已配置 API Key：{savedKey.slice(0, 8)}...{savedKey.slice(-4)}</span>
+                <span>已配置：{savedKey.slice(0, 8)}...{savedKey.slice(-4)}</span>
               </>
             ) : (
               <>
@@ -85,15 +100,36 @@ export function ApiKeySettings() {
             )}
           </div>
 
-          {/* Input */}
+          {/* API URL Input */}
           <div className="space-y-2">
-            <label className="text-xs font-medium text-zinc-400">APIMart API Key</label>
+            <label className="text-xs font-medium text-zinc-400 flex items-center gap-1.5">
+              <Globe className="h-3.5 w-3.5" />
+              API 地址
+            </label>
+            <input
+              type="text"
+              value={apiUrl}
+              onChange={(e) => setApiUrl(e.target.value)}
+              placeholder="https://api.apimart.ai"
+              className="w-full h-10 px-3 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 transition-colors"
+            />
+            <p className="text-xs text-zinc-600">
+              默认：https://api.apimart.ai，可替换为其他兼容接口地址
+            </p>
+          </div>
+
+          {/* API Key Input */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-zinc-400 flex items-center gap-1.5">
+              <Key className="h-3.5 w-3.5" />
+              API Key
+            </label>
             <div className="relative">
               <input
                 type={showKey ? 'text' : 'password'}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                placeholder={savedKey ? '已保存，留空则保持不变' : 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'}
                 className="w-full h-10 px-3 pr-10 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 transition-colors"
               />
               <button
@@ -110,7 +146,7 @@ export function ApiKeySettings() {
           <div className="flex gap-2">
             <button
               onClick={handleSave}
-              disabled={!apiKey.trim()}
+              disabled={!apiKey.trim() && !savedKey}
               className="flex-1 h-9 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-700 disabled:text-zinc-500 text-zinc-900 text-sm font-medium transition-colors flex items-center justify-center gap-1.5"
             >
               {saved ? (
@@ -127,15 +163,15 @@ export function ApiKeySettings() {
                 onClick={handleClear}
                 className="h-9 px-4 rounded-lg border border-zinc-700 hover:bg-zinc-800 text-zinc-400 text-sm transition-colors"
               >
-                清除
+                清除全部
               </button>
             )}
           </div>
 
           {/* Help text */}
           <p className="text-xs text-zinc-600">
-            API Key 仅存储在浏览器 localStorage 中，每次请求时随数据发送到后端用于调用 APIMart 服务。
-            请确保在可信环境下使用。
+            API 地址和密钥仅存储在浏览器 localStorage 中，每次请求时发送到后端用于调用图生图服务。
+            接口需兼容 APIMart 的请求/响应格式。
           </p>
         </div>
       </DialogContent>

@@ -1,11 +1,14 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { ImageUploader } from '@/components/image-uploader';
 import { PromptInput } from '@/components/prompt-input';
 import { ResultGallery } from '@/components/result-gallery';
 import { ApiKeySettings } from '@/components/api-key-settings';
 import { useImageGeneration } from '@/hooks/use-image-generation';
-import { Layers } from 'lucide-react';
+import { useGenerationHistory, fileToThumbnail } from '@/hooks/use-generation-history';
+import { Layers, History } from 'lucide-react';
+import Link from 'next/link';
 
 export default function Home() {
   const {
@@ -26,6 +29,62 @@ export default function Home() {
     retryFailedGeneration,
   } = useImageGeneration();
 
+  const { addRecord } = useGenerationHistory();
+
+  // Track if we should save history (after generation completes)
+  const wasGeneratingRef = useRef(false);
+  const savedRef = useRef(false);
+
+  useEffect(() => {
+    // When generation finishes (was generating, now not)
+    if (wasGeneratingRef.current && !isGenerating && results.length > 0 && !savedRef.current) {
+      savedRef.current = true;
+
+      // Save to history asynchronously
+      const saveToHistory = async () => {
+        const resultsWithThumbnails = await Promise.all(
+          results.map(async (r) => {
+            const sourceImage = images[r.index];
+            let sourcePreviewUrl: string | undefined;
+            if (sourceImage?.file) {
+              try {
+                sourcePreviewUrl = await fileToThumbnail(sourceImage.file);
+              } catch {
+                // ignore
+              }
+            }
+            return {
+              index: r.index,
+              success: r.success,
+              imageUrl: r.imageUrl,
+              error: r.error,
+              sourcePreviewUrl,
+            };
+          })
+        );
+
+        addRecord({
+          prompt: prompt.trim(),
+          aspectRatio,
+          resolution,
+          results: resultsWithThumbnails,
+        });
+      };
+
+      saveToHistory();
+    }
+
+    // Reset tracking when generation starts
+    if (isGenerating) {
+      wasGeneratingRef.current = true;
+      savedRef.current = false;
+    }
+
+    if (!isGenerating) {
+      wasGeneratingRef.current = false;
+    }
+  }, [isGenerating, results, images, prompt, aspectRatio, resolution, addRecord]);
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       {/* Header */}
@@ -42,7 +101,14 @@ export default function Home() {
               {'\u4e0a\u4f20\u56fe\u7247\uff0c\u63cf\u8ff0\u4f60\u7684\u521b\u610f\uff0c\u6279\u91cf\u751f\u6210'}
             </p>
           </div>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <Link
+              href="/history"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/50 transition-colors"
+            >
+              <History className="h-4 w-4" />
+              {'\u751f\u6210\u8bb0\u5f55'}
+            </Link>
             <ApiKeySettings />
           </div>
         </div>
@@ -69,6 +135,7 @@ export default function Home() {
                 progress={progress}
                 isGenerating={isGenerating}
                 onRetryFailed={retryFailedGeneration}
+                prompt={prompt.trim()}
               />
             </div>
           </div>

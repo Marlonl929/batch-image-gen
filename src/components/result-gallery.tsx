@@ -13,9 +13,10 @@ interface ResultGalleryProps {
   progress: GenerationProgress | null;
   isGenerating: boolean;
   onRetryFailed?: () => void;
+  prompt?: string;
 }
 
-export function ResultGallery({ images, results, progress, isGenerating, onRetryFailed }: ResultGalleryProps) {
+export function ResultGallery({ images, results, progress, isGenerating, onRetryFailed, prompt }: ResultGalleryProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -129,6 +130,14 @@ export function ResultGallery({ images, results, progress, isGenerating, onRetry
           )}
         </div>
       </div>
+
+      {/* Prompt display */}
+      {prompt && hasResults && (
+        <div className="px-3 py-2 rounded-lg bg-zinc-800/40 border border-zinc-800/50">
+          <p className="text-xs text-zinc-500 mb-1">{'\u63d0\u793a\u8bcd'}</p>
+          <p className="text-sm text-zinc-300 leading-relaxed">{prompt}</p>
+        </div>
+      )}
 
       {/* Progress bar */}
       {isGenerating && progress && (

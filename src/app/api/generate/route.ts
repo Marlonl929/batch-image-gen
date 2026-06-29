@@ -112,15 +112,14 @@ async function processSingleImage(
           if (data.data && data.data.length > 0 && data.data[0].url) {
             const imageUrl = data.data[0].url;
 
-            // 检测无效 URL（localhost / 内网地址）
+            // 检测无效 URL（localhost / 内网地址）→ 直接失败，不重试
             if (isInvalidImageUrl(imageUrl)) {
               console.warn(`[generate] 图片 ${idx} API 返回无效地址: ${imageUrl}`);
-              lastError = 'API 返回了无效的图片地址（内网/本地地址），请重试';
-              // 当作可重试错误处理
-              const delay = RETRY_DELAY * (attempt + 1);
-              console.warn(`[generate] 图片 ${idx} 无效地址，${delay}ms 后重试 (${attempt + 1}/${MAX_RETRIES})`);
-              await sleep(delay);
-              continue;
+              return {
+                index: item.index,
+                status: 'failed' as const,
+                error: 'API 返回了无效的图片地址（内网地址），请联系 API 提供方',
+              };
             }
 
             return {

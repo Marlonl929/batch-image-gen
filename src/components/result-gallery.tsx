@@ -1,22 +1,27 @@
 'use client';
 
 import { useState } from 'react';
+import JSZip from 'jszip';
 import type { UploadedImage, GenerationResult, GenerationProgress } from '@/hooks/use-image-generation';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Download, CheckCircle2, XCircle, Loader2, Image as ImageIcon, ZoomIn, X } from 'lucide-react';
+import { Download, CheckCircle2, XCircle, Loader2, Image as ImageIcon, ZoomIn, X, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ResultGalleryProps {
   images: UploadedImage[];
   results: GenerationResult[];
   progress: GenerationProgress | null;
   isGenerating: boolean;
+  onRetryFailed?: () => void;
 }
 
-export function ResultGallery({ images, results, progress, isGenerating }: ResultGalleryProps) {
+export function ResultGallery({ images, results, progress, isGenerating, onRetryFailed }: ResultGalleryProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewIndex, setPreviewIndex] = useState(0);
+  const [isDownloading, setIsDownloading] = useState(false);
   const hasResults = results.length > 0;
   const successResults = results.filter((r) => r.success);
+  const failedResults = results.filter((r) => !r.success);
 
   const downloadImage = async (url: string, filename: string) => {
     try {
@@ -40,12 +45,36 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
   };
 
   const downloadAll = async () => {
-    for (let i = 0; i < successResults.length; i++) {
-      const result = successResults[i];
-      if (result.imageUrl) {
-        await downloadImage(result.imageUrl, `\u751f\u6210\u7ed3\u679c_${i + 1}.png`);
-        await new Promise((r) => setTimeout(r, 300));
+    if (successResults.length === 0) return;
+    setIsDownloading(true);
+    try {
+      const zip = new JSZip();
+      for (let i = 0; i < successResults.length; i++) {
+        const result = successResults[i];
+        if (result.imageUrl) {
+          try {
+            const proxyUrl = `/api/download?url=${encodeURIComponent(result.imageUrl)}`;
+            const response = await fetch(proxyUrl);
+            if (response.ok) {
+              const blob = await response.blob();
+              zip.file(`生成结果_${i + 1}.png`, blob);
+            }
+          } catch {
+            // skip failed downloads
+          }
+        }
       }
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const zipUrl = window.URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = zipUrl;
+      link.download = `生成结果_${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(zipUrl);
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -70,17 +99,35 @@ export function ResultGallery({ images, results, progress, isGenerating }: Resul
             </span>
           )}
         </h2>
-        {successResults.length > 1 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={downloadAll}
-            className="text-amber-500 hover:text-amber-400"
-          >
-            <Download className="h-3.5 w-3.5 mr-1.5" />
-            {'\u6279\u91cf\u4e0b\u8f7d'}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {failedResults.length > 0 && onRetryFailed && !isGenerating && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onRetryFailed}
+              className="text-orange-500 hover:text-orange-400"
+            >
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+              重新生成失败结果 ({failedResults.length})
+            </Button>
+          )}
+          {successResults.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={downloadAll}
+              disabled={isDownloading}
+              className="text-amber-500 hover:text-amber-400"
+            >
+              {isDownloading ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              {isDownloading ? '打包中...' : '打包下载'}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Progress bar */}

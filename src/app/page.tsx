@@ -23,6 +23,7 @@ export default function Home() {
     removeImage,
     clearImages,
     startGeneration,
+    retryFailedGeneration,
   } = useImageGeneration();
 
   return (
@@ -67,6 +68,7 @@ export default function Home() {
                 results={results}
                 progress={progress}
                 isGenerating={isGenerating}
+                onRetryFailed={retryFailedGeneration}
               />
             </div>
           </div>

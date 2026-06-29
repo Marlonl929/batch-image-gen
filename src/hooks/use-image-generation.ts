@@ -225,6 +225,87 @@ export function useImageGeneration() {
     }
   }, [images, prompt, resolution, aspectRatio]);
 
+  const retryFailedGeneration = useCallback(async () => {
+    const failedResults = results.filter((r) => !r.success);
+    if (failedResults.length === 0) return;
+
+    setIsGenerating(true);
+    setProgress(null);
+
+    try {
+      // Get the images that failed
+      const failedIndices = failedResults.map((r) => r.index);
+      const failedImages = failedIndices.map((idx) => images[idx]).filter((img) => img?.storageUrl);
+
+      if (failedImages.length === 0) {
+        throw new Error('没有可重试的图片');
+      }
+
+      const imageUrls = failedImages.map((img) => img.storageUrl);
+
+      const apiKey = localStorage.getItem('apimart_api_key') || '';
+      if (!apiKey) {
+        throw new Error('请先在右上角设置中配置 APIMart API Key');
+      }
+
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageUrls,
+          prompt: prompt.trim(),
+          size: aspectRatio,
+          resolution: resolution.toLowerCase(),
+          apiKey,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('启动生成失败');
+      }
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+
+            if (data.type === 'progress') {
+              setProgress({ current: data.current, total: data.total });
+            } else if (data.type === 'result') {
+              // Map the result back to the original index
+              const originalIndex = failedIndices[data.index];
+              const mappedResult = { ...data, index: originalIndex };
+
+              setResults((prev) => {
+                // Replace the failed result with the new one
+                const newResults = prev.filter((r) => r.index !== originalIndex);
+                return [...newResults, mappedResult];
+              });
+            }
+          } catch {
+            // Skip malformed JSON
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Retry generation error:', error);
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [results, images, prompt, resolution, aspectRatio]);
+
   return {
     images,
     prompt,
@@ -240,5 +321,6 @@ export function useImageGeneration() {
     removeImage,
     clearImages,
     startGeneration,
+    retryFailedGeneration,
   };
 }

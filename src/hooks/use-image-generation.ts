@@ -233,7 +233,7 @@ export function useImageGeneration() {
     if (!apiKey) {
       throw new Error('请先在右上角设置中配置 API Key');
     }
-    const apiUrl = localStorage.getItem('apimart_api_url') || 'https://ncp.hayoz.top/v1';
+    const apiUrl = localStorage.getItem('apimart_api_url') || 'https://api.manxiaobai.online/v1';
 
     abortRef.current = false;
     setIsGenerating(true);
@@ -338,70 +338,57 @@ export function useImageGeneration() {
       if (!apiKey) {
         throw new Error('请先在右上角设置中配置 API Key');
       }
-      const apiUrl = localStorage.getItem('apimart_api_url') || 'https://ncp.hayoz.top/v1';
+      const apiUrl = localStorage.getItem('apimart_api_url') || 'https://api.manxiaobai.online/v1';
 
-      // Submit retry tasks
+      // 同步调用 - 和主生成逻辑一样
       const response = await fetch('/api/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+        },
         body: JSON.stringify({
-          imageUrls,
+          items: failedImages.map((img, i) => ({ imageUrl: img.storageUrl, index: failedIndices[i] })),
           prompt: prompt.trim(),
-          size: aspectRatio,
+          aspectRatio,
           resolution: resolution.toLowerCase(),
-          apiKey,
+          size: aspectRatio,
+          model: 'gpt-image-2',
+          strength: 0.5,
           apiUrl,
         }),
       });
 
       if (!response.ok) {
-        throw new Error('启动生成失败');
+        let errMsg = '重试失败';
+        try {
+          const errData = await response.json();
+          errMsg = errData.error || errMsg;
+        } catch {
+          errMsg = `请求失败 (${response.status})`;
+        }
+        throw new Error(errMsg);
       }
 
-      const { tasks, immediateErrors } = await response.json();
-      const total = failedImages.length;
+      const { results: apiResults, errors: apiErrors } = await response.json();
 
-      // Handle immediate errors
-      for (const err of immediateErrors) {
-        const originalIndex = failedIndices[err.index];
-        setResults((prev) => {
-          const newResults = prev.filter((r) => r.index !== originalIndex);
-          return [...newResults, { index: originalIndex, success: false, error: err.error }];
-        });
+      // 更新成功结果
+      if (apiResults && Array.isArray(apiResults)) {
+        for (const r of apiResults) {
+          setResults((prev) => {
+            const filtered = prev.filter((x) => x.index !== r.index);
+            return [...filtered, { index: r.index, success: true, imageUrl: r.imageUrl }];
+          });
+        }
       }
 
-      // Client-side polling for retry tasks
-      if (tasks.length > 0) {
-        const pollPromises = tasks.map(
-          (task: { index: number; task_id: string }) =>
-            pollTask(task.task_id, apiKey, apiUrl, () => {}).then((result) => ({
-              index: task.index,
-              ...result,
-            }))
-        );
-
-        const settledResults = await Promise.allSettled(pollPromises);
-
-        if (!abortRef.current) {
-          for (let i = 0; i < settledResults.length; i++) {
-            const settled = settledResults[i];
-            const originalIndex = failedIndices[tasks[i]?.index ?? 0];
-
-            if (settled.status === 'fulfilled') {
-              const mappedResult = { ...settled.value, index: originalIndex };
-              setResults((prev) => {
-                const newResults = prev.filter((r) => r.index !== originalIndex);
-                return [...newResults, mappedResult];
-              });
-            } else {
-              const errorMessage = settled.reason?.message || '生成失败';
-              setResults((prev) => {
-                const newResults = prev.filter((r) => r.index !== originalIndex);
-                return [...newResults, { index: originalIndex, success: false, error: errorMessage }];
-              });
-            }
-          }
-          setProgress({ current: total, total });
+      // 更新失败原因
+      if (apiErrors && Array.isArray(apiErrors)) {
+        for (const r of apiErrors) {
+          setResults((prev) => {
+            const filtered = prev.filter((x) => x.index !== r.index);
+            return [...filtered, { index: r.index, success: false, error: r.error || '生成失败' }];
+          });
         }
       }
     } catch (error) {

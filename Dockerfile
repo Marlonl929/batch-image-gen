@@ -1,5 +1,8 @@
 FROM node:20-alpine
 
+# Install bash (Alpine doesn't include it by default, but build scripts require it)
+RUN apk add --no-cache bash
+
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
@@ -15,14 +18,12 @@ COPY . .
 
 # Set environment
 ENV COZE_PROJECT_ENV=PROD
-ENV PORT=80
 ENV HOSTNAME=0.0.0.0
 
-# Build the project
+# Build the project (build.sh handles both next build and tsup)
 RUN pnpm build
-RUN pnpm tsup src/server.ts --format cjs --platform node --target node20 --outDir dist --no-splitting --no-minify
 
-# Expose port
+# Expose port (Render injects PORT env variable automatically)
 EXPOSE 80
 
 # Start the server

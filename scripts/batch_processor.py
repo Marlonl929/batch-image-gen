@@ -125,10 +125,10 @@ def ensure_folders():
 def get_image_files() -> List[Path]:
     """获取输入文件夹中的所有图片文件"""
     input_path = Path(INPUT_FOLDER)
-    files = []
+    files: set[Path] = set()
     for ext in SUPPORTED_EXTENSIONS:
-        files.extend(input_path.glob(f"*{ext}"))
-        files.extend(input_path.glob(f"*{ext.upper()}"))
+        files.update(input_path.glob(f"*{ext}"))
+        files.update(input_path.glob(f"*{ext.upper()}"))
     return sorted(files)
 
 
@@ -292,6 +292,8 @@ def process_single_image(
 
 def move_to_completed(file_path: Path):
     """将原图移动到已完成文件夹"""
+    if not file_path.exists():
+        return
     dest = Path(COMPLETED_FOLDER) / file_path.name
     # 如果目标已存在，添加时间戳
     if dest.exists():
@@ -302,6 +304,8 @@ def move_to_completed(file_path: Path):
 
 def move_to_failed(file_path: Path):
     """将失败的原图移动到失败文件夹"""
+    if not file_path.exists():
+        return
     dest = Path(FAILED_FOLDER) / file_path.name
     # 如果目标已存在，添加时间戳
     if dest.exists():

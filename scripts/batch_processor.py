@@ -43,6 +43,7 @@ MODEL = "gpt-image-2"  # 模型名称
 INPUT_FOLDER = "./input"  # 输入文件夹
 OUTPUT_FOLDER = "./output"  # 输出文件夹
 COMPLETED_FOLDER = "./completed"  # 已完成原图文件夹
+FAILED_FOLDER = "./failed"  # 生成失败的原图文件夹
 
 # 处理配置
 BATCH_SIZE = 5  # 每批处理图片数量
@@ -112,12 +113,13 @@ def get_pixel_size(aspect_ratio: str, resolution: str) -> str:
 
 def ensure_folders():
     """确保所有必要的文件夹存在"""
-    for folder in [INPUT_FOLDER, OUTPUT_FOLDER, COMPLETED_FOLDER]:
+    for folder in [INPUT_FOLDER, OUTPUT_FOLDER, COMPLETED_FOLDER, FAILED_FOLDER]:
         Path(folder).mkdir(parents=True, exist_ok=True)
     print(f"✓ 文件夹已就绪")
     print(f"  输入: {os.path.abspath(INPUT_FOLDER)}")
     print(f"  输出: {os.path.abspath(OUTPUT_FOLDER)}")
     print(f"  已完成: {os.path.abspath(COMPLETED_FOLDER)}")
+    print(f"  失败: {os.path.abspath(FAILED_FOLDER)}")
 
 
 def get_image_files() -> List[Path]:
@@ -298,6 +300,16 @@ def move_to_completed(file_path: Path):
     shutil.move(str(file_path), str(dest))
 
 
+def move_to_failed(file_path: Path):
+    """将失败的原图移动到失败文件夹"""
+    dest = Path(FAILED_FOLDER) / file_path.name
+    # 如果目标已存在，添加时间戳
+    if dest.exists():
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dest = Path(FAILED_FOLDER) / f"{file_path.stem}_{timestamp}{file_path.suffix}"
+    shutil.move(str(file_path), str(dest))
+
+
 def main():
     """主函数"""
     print("=" * 50)
@@ -361,9 +373,13 @@ def main():
                         move_to_completed(file_path)
                     else:
                         fail_count += 1
+                        # 移动原图到失败文件夹
+                        move_to_failed(file_path)
                 except Exception as e:
                     print(f"  ✗ 处理异常 {file_path.name}: {e}")
                     fail_count += 1
+                    # 移动原图到失败文件夹
+                    move_to_failed(file_path)
 
         # 批次间间隔 1 秒
         if batch_end < len(image_files):
@@ -380,6 +396,8 @@ def main():
     print(f"耗时: {elapsed:.1f} 秒")
     print(f"\n结果保存在: {os.path.abspath(OUTPUT_FOLDER)}")
     print(f"原图已移动到: {os.path.abspath(COMPLETED_FOLDER)}")
+    if fail_count > 0:
+        print(f"失败图片在: {os.path.abspath(FAILED_FOLDER)}")
 
 
 if __name__ == "__main__":

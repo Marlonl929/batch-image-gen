@@ -19,6 +19,7 @@ export interface GenerationResult {
   success: boolean;
   imageUrl?: string;
   error?: string;
+  originalName?: string;
 }
 
 export interface GenerationProgress {
@@ -255,7 +256,7 @@ export function useImageGeneration() {
           'x-api-key': apiKey,
         },
         body: JSON.stringify({
-          items: uploadedEntries.map((e) => ({ imageUrl: e.img.storageUrl, index: e.idx })),
+          items: uploadedEntries.map((e) => ({ imageUrl: e.img.storageUrl, index: e.idx, originalName: e.img.file.name })),
           prompt: prompt.trim(),
           aspectRatio,
           resolution: resolution.toLowerCase(),
@@ -310,6 +311,7 @@ export function useImageGeneration() {
                   index: event.index,
                   success: true,
                   imageUrl: event.imageUrl,
+                  originalName: event.originalName,
                 });
                 setResults([...newResults]);
               } else if (event.type === 'error') {
@@ -369,7 +371,7 @@ export function useImageGeneration() {
           'x-api-key': apiKey,
         },
         body: JSON.stringify({
-          items: failedImages.map((img, i) => ({ imageUrl: img.storageUrl, index: failedIndices[i] })),
+          items: failedImages.map((img, i) => ({ imageUrl: img.storageUrl, index: failedIndices[i], originalName: img.file.name })),
           prompt: prompt.trim(),
           aspectRatio,
           resolution: resolution.toLowerCase(),

@@ -245,7 +245,7 @@ export async function POST(request: NextRequest) {
           }
 
           const batchResults = await Promise.all(
-            batch.map(async (item: { imageUrl: string; index: number }) => {
+            batch.map(async (item: { imageUrl: string; index: number; originalName?: string }) => {
               const { index } = item;
               let lastError: Error | null = null;
 
@@ -286,6 +286,7 @@ export async function POST(request: NextRequest) {
                     status: 'completed',
                     imageUrl: result.url,
                     revisedPrompt: result.revisedPrompt,
+                    originalName: item.originalName,
                   };
                 } catch (err) {
                   const msg = err instanceof Error ? err.message : String(err);
@@ -328,7 +329,7 @@ export async function POST(request: NextRequest) {
           for (const r of batchResults) {
             if (r.status === 'completed') {
               results.push(r as typeof results[number]);
-              send({ type: 'result', index: r.index, imageUrl: r.imageUrl, revisedPrompt: r.revisedPrompt });
+              send({ type: 'result', index: r.index, imageUrl: r.imageUrl, revisedPrompt: r.revisedPrompt, originalName: r.originalName });
             } else {
               errors.push(r as typeof errors[number]);
               send({ type: 'error', index: r.index, error: r.error });

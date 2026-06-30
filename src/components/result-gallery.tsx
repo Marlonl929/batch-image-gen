@@ -75,7 +75,10 @@ export function ResultGallery({ images, results, progress, isGenerating, onRetry
             const response = await fetch(proxyUrl);
             if (response.ok) {
               const blob = await response.blob();
-              zip.file(`生成结果_${i + 1}.png`, blob);
+              const filename = result.originalName 
+                ? result.originalName.replace(/\.[^/.]+$/, '.png')
+                : `生成结果_${i + 1}.png`;
+              zip.file(filename, blob);
             }
           } catch {
             // skip failed downloads
@@ -223,7 +226,7 @@ export function ResultGallery({ images, results, progress, isGenerating, onRetry
                       variant="secondary"
                       onClick={(e) => {
                         e.stopPropagation();
-                        downloadImage(result.imageUrl!, `\u751f\u6210\u7ed3\u679c_${result.index + 1}.png`);
+                        downloadImage(result.imageUrl!, result.originalName ? result.originalName.replace(/\.[^/.]+$/, '.png') : `生成结果_${result.index + 1}.png`);
                       }}
                       className="opacity-0 group-hover:opacity-100 transition-opacity"
                     >

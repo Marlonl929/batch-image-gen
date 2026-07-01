@@ -22,10 +22,11 @@ import json
 import shutil
 import mimetypes
 import requests
+import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Queue
 
 # ==================== 配置项 ====================
 
@@ -315,7 +316,7 @@ def move_to_failed(file_path: Path):
 
 
 def main():
-    """主函数"""
+    """主函数 - 流水线模式：每个 worker 处理完一张立刻取下一张，互不等待"""
     print("=" * 50)
     print("批量图生图处理脚本 (manxiaobai 异步版)")
     print("=" * 50)
@@ -338,63 +339,72 @@ def main():
         print("请将图片放入输入文件夹后重新运行")
         return
 
-    print(f"\n找到 {len(image_files)} 张图片待处理")
-    print(f"批量大小: {BATCH_SIZE}")
+    total = len(image_files)
+    print(f"\n找到 {total} 张图片待处理")
+    print(f"并发数: {BATCH_SIZE}")
     print(f"提示词: {PROMPT}")
     print(f"宽高比: {ASPECT_RATIO} → 像素尺寸: {pixel_size}")
     print(f"分辨率: {RESOLUTION}")
     print(f"模型: {MODEL}")
     print("-" * 50)
 
-    # 统计
+    # 统计（线程安全）
+    lock = threading.Lock()
     success_count = 0
     fail_count = 0
+    processed_count = 0
     start_time = time.time()
 
-    # 分批处理
-    for batch_start in range(0, len(image_files), BATCH_SIZE):
-        batch_end = min(batch_start + BATCH_SIZE, len(image_files))
-        batch_files = image_files[batch_start:batch_end]
+    # 构建任务队列
+    task_queue: Queue[Tuple[int, Path]] = Queue()
+    for i, file_path in enumerate(image_files):
+        task_queue.put((i + 1, file_path))
 
-        print(f"\n>>> 批次 {batch_start // BATCH_SIZE + 1}: 处理 {len(batch_files)} 张图片")
+    def worker():
+        """每个 worker 不断从队列取任务，直到队列为空"""
+        nonlocal success_count, fail_count, processed_count
+        while True:
+            try:
+                index, file_path = task_queue.get_nowait()
+            except Exception:
+                break  # 队列空了，退出
 
-        # 并行处理当前批次
-        with ThreadPoolExecutor(max_workers=BATCH_SIZE) as executor:
-            futures = {
-                executor.submit(
-                    process_single_image, file_path, batch_start + i + 1, len(image_files), pixel_size
-                ): file_path
-                for i, file_path in enumerate(batch_files)
-            }
+            # 处理单张图片
+            success, original_name, output_path = process_single_image(
+                file_path, index, total, pixel_size
+            )
 
-            for future in as_completed(futures):
-                file_path = futures[future]
-                try:
-                    success, original_name, output_path = future.result()
-                    if success:
-                        success_count += 1
-                        # 移动原图到已完成文件夹
-                        move_to_completed(file_path)
-                    else:
-                        fail_count += 1
-                        # 移动原图到失败文件夹
-                        move_to_failed(file_path)
-                except Exception as e:
-                    print(f"  ✗ 处理异常 {file_path.name}: {e}")
+            with lock:
+                if success:
+                    success_count += 1
+                    move_to_completed(file_path)
+                else:
                     fail_count += 1
-                    # 移动原图到失败文件夹
                     move_to_failed(file_path)
+                processed_count += 1
+                # 实时进度
+                elapsed = time.time() - start_time
+                print(f"\n📊 总进度: {processed_count}/{total} (成功:{success_count} 失败:{fail_count}) 已用时:{elapsed:.0f}s")
 
-        # 批次间间隔 1 秒
-        if batch_end < len(image_files):
-            time.sleep(1)
+            task_queue.task_done()
+
+    # 启动 worker 线程池
+    threads: List[threading.Thread] = []
+    for _ in range(min(BATCH_SIZE, total)):
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        threads.append(t)
+
+    # 等待所有 worker 完成
+    for t in threads:
+        t.join()
 
     # 输出统计
     elapsed = time.time() - start_time
     print("\n" + "=" * 50)
     print("处理完成!")
     print("=" * 50)
-    print(f"总计: {len(image_files)} 张")
+    print(f"总计: {total} 张")
     print(f"成功: {success_count} 张")
     print(f"失败: {fail_count} 张")
     print(f"耗时: {elapsed:.1f} 秒")
